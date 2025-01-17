@@ -1,0 +1,236 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.locale.cart.CartPageLocale;
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.common.AISJumpinArcThreshold;
+import com.amazon.aeeqa.ui.common.Country;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestASIN;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestAccount;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.*;
+import com.amazon.aeeqa.ui.pagemodels.cart.CartPage;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+import lombok.extern.slf4j.Slf4j;
+import org.openqa.selenium.WebDriver;
+import org.testng.Assert;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+
+import java.text.DecimalFormat;
+import java.util.Arrays;
+
+/**
+ * Test cases to verify Cart page Jumpin features in Amazon International Shopping mode.
+ * @author shrumand
+ */
+@Slf4j
+public class CartPageJumpinTest extends AISBaseUITest {
+
+    private static final String GROUP_JUMPIN_BELOW_THRESHOLD = "CartPageJumpin-BelowThreshold";
+    private static final String GROUP_JUMPIN_ABOVE_THRESHOLD = "CartPageJumpin-AboveThreshold";
+    Country initialExportableCountry = null;
+
+    @BeforeClass(alwaysRun = true)
+    public void setupJumpinValuesAndInitializeExportableCountryToJumpin() {
+        AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC = AISJumpinArcThreshold.valueOf(String.format("%s_%s", sourceCountryCode, freeShippingExportableCountry.toString())).getAISJumpinArcThresholdValue();
+        /**Overriding exportableCountry to Jumpin country as testDTORequest in individual tests is designed with exportableCountry variable input declared in AIS BaseUITest
+        Storing the original exportable country in a new variable to reinitalize back after the tests**/
+        initialExportableCountry = exportableCountry;
+        exportableCountry = freeShippingExportableCountry;
+    }
+
+    @AfterClass(alwaysRun = true)
+    public void reInitializeExportableCountry() {
+        //Other classes' tests may fail if exportableCountry is overriden to freeShippingExportableCountry. Hence, switching back to the original export country chosen in AISBaseUI
+        exportableCountry = initialExportableCountry;
+    }
+
+    @AfterMethod(alwaysRun = true)
+    public void afterCartJumpinTestClearCart() {
+        // Run only once and ignore any exception if happened
+        runOnceAndIgnoreAllException("AISCartJumpinClearCartAndSFL", () -> {
+            CartHelper.clearItemsInCart(driver);
+            CartHelper.deleteItemsInSavedForLater(driver, url);
+            return true;
+        });
+    }
+
+    @Test(description = "C240851, "
+            + "Cart-[Recognized/Unrecognized]:Verify Customers should see Free Shipping to Country X” next to products that "
+            + "are above or equal to threshold amount (similar to Search)-Shipping to Jumpin Destination",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CART, GROUP_JUMPIN_ABOVE_THRESHOLD, FeatureGroups.JUMPIN},
+            enabled = true)
+    //TODO: Enable for JP once Jumpin is launched in JP
+    @MethodSelector(exclude = "JP")
+    public void testFreeShippingMessageAboveThreshold() throws Exception {
+        final CartPage cartPage =  new CartPage(driver);
+        //Overriding Product Group Type since for AT we use SDC config which are currently mapped only for gl_pc
+        productGroupType = "gl_pc";
+        //TODO: Currently test is enabled to run only in rec mode because of existing issue: https://t.corp.amazon.com/P47409589. Once this issue is resolved, need to enable unrec as well
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getJumpinHardCodeASIN("aisFreeShipping")),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        //TODO: Once shift service resolves above threshold issue, uncomment the following and remove above implementation for getJumpinHardCodeASIN
+        /* testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getAisFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE)), null /* no account */ /*);*/
+        testDTO = generateTestDTO(testDTORequest);
+        workflowToCartPage(testDTO, driver, freeShippingExportableCountry.getCountryDisplayName());
+        final String eligibleForFreeShippingText = lmsHelper.getTextForStringId("jumpin_msg_free_shipping");
+        Assert.assertTrue(cartPage.isEligibleForFreeShippingTextInActiveCart(eligibleForFreeShippingText), "Eligible for Free shipping message is not displaying for Jumpin Above Threshold ASIN in Carts");
+            driver.navigate().refresh();
+    }
+
+    @Test(description = "C240849, "
+            + "Cart-[Recognized/Unrecognized]:Verify Customers should see Free Shipping to country X on qualifying orders over $X” "
+            + "next to products that are below threshold amount (similar to Search)-Shipping to Jumpin Destination",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CART, GROUP_JUMPIN_BELOW_THRESHOLD, FeatureGroups.JUMPIN},
+            enabled = true)
+    //TODO: Enable for JP once Jumpin is launched in JP
+    @MethodSelector(exclude = "JP")
+    public void testEligibleForFreeShippingMessageBelowThreshold() throws Exception {
+        //TODO: Currently test is enabled to run only in rec mode because of existing issue: https://t.corp.amazon.com/P47409589. Once this issue is resolved, need to enable unrec as well
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                        getAisEligibleForFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC)),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        workflowToCartPage(testDTO, driver, freeShippingExportableCountry.getCountryDisplayName());
+        final CartPage cartPage =  new CartPage(driver);
+        final String eligibleForFreeShippingText = lmsHelper.getTextForStringId("jumpin_msg_free_shipping");
+        DecimalFormat decimalFormat = new DecimalFormat("0.00");
+        if (!currencySymbolForStringManipulations.contains("$")) {
+            currencySymbolForStringManipulations = currencySymbolForStringManipulations + " ";
+        }
+        final String expectedThresholdPriceWithCurrencySymbol = currencySymbolForStringManipulations + decimalFormat.format(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC);
+        final String expectedEligibleForFreeShippingStringInCart = eligibleForFreeShippingText.replaceAll("\\<.*?\\>","") +
+                lmsHelper.getTextForStringId("jumpin_msg_under_free_ship_threshold").replaceAll("\\$\\{countryName\\}", freeShippingExportableCountry.getCountryDisplayName()) +
+                lmsHelper.getTextForStringId("jumpin_msg_free_ifd_threshold_under_free_ship_threshold_value_non_cop").replaceAll("\\$\\{freeShipThreshold\\}", expectedThresholdPriceWithCurrencySymbol);
+        log.info("Eligible For FreeShipping Text in Cart: " + cartPage.getShippingBenefitTextInActiveCart(eligibleForFreeShippingText));
+        log.info("Expected FreeShipping Value in Cart: " + expectedEligibleForFreeShippingStringInCart);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(cartPage.getShippingBenefitTextInActiveCart(eligibleForFreeShippingText).contains(expectedEligibleForFreeShippingStringInCart),
+                "Eligible for Free shipping message is not displaying for Jumpin Below Threshold ASIN in Carts");
+        String[] expectedFreeShippingUpsellMessageInCartGutter = lmsHelper.getTextForStringId("efs_upsell_cart_buy_box").split("\\$\\{hash-get gap\\}");
+        final String expectedFreeShippingUpsellMessageInCartGutterPart0 = expectedFreeShippingUpsellMessageInCartGutter[0] + currencySymbol;
+        final String expectedFreeShippingUpsellMessageInCartGutterPart1 = expectedFreeShippingUpsellMessageInCartGutter[1];
+        cartPage.verifyMessageAndLinkInCartGutter(expectedFreeShippingUpsellMessageInCartGutterPart0, true);
+        cartPage.verifyMessageAndLinkInCartGutter(expectedFreeShippingUpsellMessageInCartGutterPart1, true);
+        cartPage.clickSaveForLater();
+        softAssert.assertTrue(cartPage.getShippingBenefitTextInSaveForLater(eligibleForFreeShippingText).trim().contains(expectedEligibleForFreeShippingStringInCart),
+                "Eligible for Free shipping message is not displaying for Jumpin Below Threshold ASIN in SFL Section");
+        driver.navigate().refresh();
+    }
+
+    @Test(description = "C240850, "
+            + "Cart-[Recognized/Unrecognized]:Verify Threshold value COP aware if customer changes COP to local currency in Shopping Cart-Shipping to Jumpin Destination",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CART, GROUP_JUMPIN_BELOW_THRESHOLD, FeatureGroups.JUMPIN},
+            enabled = true)
+    //TODO: Enable for JP once Jumpin is launched in JP
+    @MethodSelector(exclude = "JP")
+    public void testEligibleForFreeShippingMessageBelowThresholdNonUSCurrency() throws Exception {
+        //TODO: Currently test is enabled to run only in rec mode because of existing issue: https://t.corp.amazon.com/P47409589. Once this issue is resolved, need to enable unrec as well
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                        getAisEligibleForFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC)),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        workflowToCartPage(testDTO, driver, freeShippingExportableCountry.getCountryDisplayName());
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        //Converting to int as for non USD the string would be like with int. Ex. "..when you spend over USD 49.."
+        int thresholdPrice = AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC.intValue();
+        CartHelper.goToCartPage(driver,url);
+        final CartPage cartPage =  new CartPage(driver);
+        final String expectedThresholdPriceWithDefaultCurrencySymbol = currencyName + " " + thresholdPrice;
+        final String expectedFreeShippingText = CartPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent();
+        final String expectedFreeShippingMessageInCart = String.format("%s %s %s", expectedFreeShippingText,
+                CartPageLocale.JUMPIN_MSG_UNDER_FREE_SHIPPING_THRESHOLD.getI18NContentWithCustomText(freeShippingExportableCountry.getCountryDisplayName()),
+                CartPageLocale.JUMPIN_MSG_FREE_IFD_THRESHOLD_UNDER_FREE_SHIPPING_THRESHOLD_VALUE_COP
+                              .getI18NContentWithMultipleValues(Arrays.asList(expectedThresholdPriceWithDefaultCurrencySymbol, ".*?")));
+        final String observedFreeShippingMessageInCart = cartPage.getShippingBenefitTextInActiveCart(expectedFreeShippingText).trim();
+        log.info("Observed eligible for FreeShipping Text in Cart : [{}]", observedFreeShippingMessageInCart);
+        try {
+            SoftAssert softAssert = new SoftAssert();
+            //Validates static contents of EFS message in active cart.
+            softAssert.assertTrue(StringHelper.doesPatternMatch(observedFreeShippingMessageInCart, expectedFreeShippingMessageInCart),
+                        String.format("Observed Free shipping text in active cart: [%s] doesn't contain expected Free shipping text: [%s]",
+                                observedFreeShippingMessageInCart, expectedFreeShippingMessageInCart));
+            //Validates dynamic COP threshold contents of EFS message in active cart.
+            //As threshold price with default currency is already validated in previous assertion, only COP threshold value is validated here.
+            String[] thresholdValues = CartPageLocale.JUMPIN_MSG_FREE_IFD_THRESHOLD_UNDER_FREE_SHIPPING_THRESHOLD_VALUE_COP
+                                                     .getDynamicTextFromI18NContent(observedFreeShippingMessageInCart);
+            if (thresholdValues != null) { //adding this condition to prevent null pointer exception.
+                softAssert.assertTrue(thresholdValues[1].contains(selectedCurrency),
+                        String.format("Selected currency '%s' is missing in COP threshold value in cart: [%s]", selectedCurrency, thresholdValues[1]));
+            }
+
+            //Validates static contents of Upsell message in Cart gutter.
+            String[] staticContentsInUpsellMessage = CartPageLocale.EFS_UPSELL_CART_BUY_BOX.getI18NContentAndSplitByPlaceholder();
+            for(String staticText : staticContentsInUpsellMessage){
+                cartPage.verifyMessageAndLinkInCartGutter(staticText.trim(), true);
+            }
+            //Validates dynamic COP threshold content of Upsell message in Cart gutter.
+            String[] thresholdGapInUpsellMessage = CartPageLocale.EFS_UPSELL_CART_BUY_BOX
+                                                    .getDynamicTextFromI18NContent(cartPage.getMessageInCartGutter(staticContentsInUpsellMessage[0]));
+            if (thresholdGapInUpsellMessage != null) { //adding this condition to prevent null pointer exception
+                softAssert.assertTrue(thresholdGapInUpsellMessage[0].contains(selectedCurrency),
+                        String.format("Selected currency '%s' is missing in COP threshold value:[%s] in upsell message ", selectedCurrency, thresholdGapInUpsellMessage[0]));
+            }
+
+            //Validates EFS message in cart sfl.
+            cartPage.clickSaveForLater();
+            String observedFreeShippingMessageInSFL =  cartPage.getShippingBenefitTextInSaveForLater(expectedFreeShippingText).trim();
+            softAssert.assertEquals(observedFreeShippingMessageInSFL, observedFreeShippingMessageInCart);
+
+            driver.navigate().refresh();
+            softAssert.assertAll();
+        } finally {
+            //Resetting the currency back to USD for other test using this account.
+            BrowserDriverHelper.goToUrl(driver, url);
+            CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+            CurrencySelectionHelper.selectCurrencyByNameToShopWith(driver, "Default");
+        }
+    }
+
+    @Test(description = "C279264, "
+            + "Cart - Verify customers should see \"Shipping Fees Applies to this item\" messaging for jumpin Ineligible Items in cart and SFL",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.CART, GROUP_JUMPIN_BELOW_THRESHOLD, FeatureGroups.JUMPIN})
+    //TODO: Enable for JP once Jumpin is launched in JP
+    @MethodSelector(exclude = "JP")
+    public void testItemLevelMessageForJumpinIneligible() throws Exception {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                        getBasicIneligibleForAisFreeShippingAsin()),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        workflowToCartPage(testDTO, driver, freeShippingExportableCountry.getCountryDisplayName());
+        final CartPage cartPage = new CartPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        String expectedJumpinIneligibleMessageInCart = lmsHelper.getTextForStringId("efs_paid_shipping_cart_info_block_delivery_program_subtitle");
+        softAssert.assertTrue(cartPage.getShippingMessageTextInCartByASIN(testDTO.getTestASIN().getAsin(),expectedJumpinIneligibleMessageInCart).contains(expectedJumpinIneligibleMessageInCart), "Jumpin ineligible message is not displaying properly in Cart");
+        cartPage.clickSaveForLater();
+        softAssert.assertTrue(cartPage.getShippingMessageTextInSFLByASIN(testDTO.getTestASIN().getAsin(),expectedJumpinIneligibleMessageInCart).contains(expectedJumpinIneligibleMessageInCart), "Jumpin ineligible message is not displaying properly in SFL Section");
+        softAssert.assertAll();
+    }
+
+    /**
+     * Method to Add ASIN from Cart Internal Tool Interface and lands on Cart page.
+     */
+    private void workflowToCartPage(final TestDTO testDTO, final WebDriver driver, String countryName) {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, countryName, url);
+        //Adding this check to verify if AIS mode has been entered
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        String offerListingValue = detailPage.getOfferListingValue();
+        CartHelper.addItemsToCart(driver, testDTO.getTestASIN().getAsin(), offerListingValue);
+        CartHelper.goToCartPage(driver,url);
+        driver.navigate().refresh();
+    }
+
+}
