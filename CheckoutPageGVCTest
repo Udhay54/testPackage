@@ -1,0 +1,164 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.locale.ImportFeesStrings;
+import com.amazon.aeeqa.locale.yourprofile.GVCStrings;
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.testasins.AisProductGroupType;
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.common.*;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.*;
+import com.amazon.aeeqa.ui.pagemodels.checkout.CheckoutPage;
+import org.testng.Assert;
+import org.testng.annotations.*;
+import org.testng.asserts.SoftAssert;
+
+/**
+ * Test cases to verify Checkout GVC (Global VAT Collection) Test Cases in Amazon International Shopping mode
+ *
+ * @author vllaks
+ */
+//TODO: For now including GVC tests only for US MP. Will enable for AU and other AIS MPs after creating similar code from CheckoutPageGVCFunctionalTestForTaxInclusiveMPs.java
+@MethodSelector(include = "US")
+public class CheckoutPageGVCTest extends AISBaseUITest {
+
+    private static final String GROUP_GVC_BELOW_THRESHOLD = "CheckoutPageGvc-BelowThreshold";
+    private static final String GROUP_GVC_ABOVE_THRESHOLD = "CheckoutPageGvc-AboveThreshold";
+    Country initialExportableCountry = null;
+
+        @BeforeClass(alwaysRun = true)
+        public void beforeGVCTestsInitializeCountryForASINRetrievalAndSetGVCValues() {
+            initialExportableCountry = exportableCountry;
+            //Overriding GSTExportableCountry to exportableCountry for ASIN retrieval from Cache
+            exportableCountry = gstExportableCountry;
+            AIS_GVC_PERCENTAGE = GVCTaxPercentageAndHelpNodeIDs.valueOf(gstExportableCountry.toString()).getGvcPercentage();
+            AIS_DOMESTIC_TAX_PERCENTAGE = GVCTaxPercentageAndHelpNodeIDs.valueOf(sourceCountryCode).getGvcPercentage();
+            AIS_GVC_HELP_NODE_ID = GVCTaxPercentageAndHelpNodeIDs.valueOf(sourceCountryCode).getGvcHelpNodeIDs();
+            AIS_GVC_TAX_EXEMPT_GL_TYPE_VALUE =  GVCTaxExemptGlsTypeValues.valueOf(gstExportableCountry.toString()).getGVCTaxExemptGlsTypeValues();
+        }
+
+        @AfterClass(alwaysRun = true)
+        public void AfterGVCTestsResetExportableCountrySetup() {
+            //Rest of the tests are sometimes failing in the suite as exportableCountry is overriden to GVC country. Hence, switching back to the original export country chosen in AISBaseUI
+            exportableCountry = initialExportableCountry;
+        }
+
+        @AfterMethod(alwaysRun = true)
+        public void afterCheckoutGVCClearCart() {
+            // Run only once and ignore any exception if happened
+            runOnceAndIgnoreAllException("Gvc#afterTestClearCart", () -> {
+                CartHelper.clearItemsInCart(driver);
+                return true;
+            });
+        }
+
+        @Test(description = "C159956, "
+                + "Verify \"Estimated GST/VAT to be collected\" link is displayed when checkout Below threshold ASINs for GVC Exportable countries and clicking on GST/VAT hyperlink in Checkout page - Opens a new window with GST/VAT help page",
+                groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT, GROUP_GVC_BELOW_THRESHOLD, FeatureGroups.RUN_CHECKOUT_PARTNER_PIPELINE})
+        public void testEstimatedGSTLinkIsPresentAndClickableForBelowThresholdAsin() throws Exception {
+            //Overriding Product Group Type since all AIS Product Group type is not returned ASIN for Below Threshold
+            productGroupType = AisProductGroupType.getRandomProductGroupTypeForGstExportableCountries().name();
+            testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                            getAisBelowThresholdCondition(AIS_GST_THRESHOLD_PRICE)),
+                    buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+            testDTO = generateTestDTO(testDTORequest);
+            AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, gstExportableCountry.getCountryDisplayName(), false, false);
+            CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+                Assert.assertTrue(checkoutPage.isEstimatedGSTLinkPresent(GVCStrings.getGVCCheckoutString(gstExportableCountry)), "Estimated GST/VAT/ST link is not present for Below threshold ASIN for GVC Exportable Countries.");
+                checkoutPage.clickEstimatedGSTLink(GVCStrings.getGVCCheckoutString(gstExportableCountry));
+                AISCheckoutHelper.validateTaxHelpPageIsDisplayed(GVCTaxPercentageAndHelpNodeIDs.valueOf(sourceCountryCode).getGvcHelpNodeIDs(), gstExportableCountry, sourceCountryCode, driver);
+
+        }
+
+        @Test(description = "C159965, "
+                + "Verify 'IFD' link is not displayed when checkout Below threshold ASINs for GVC Exportable countries",
+                groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT, GROUP_GVC_BELOW_THRESHOLD})
+        public void testIFDLinkIsNotPresentForBelowThresholdAsin() throws Exception {
+            //Overriding Product Group Type since all AIS Product Group type is not returned ASIN for below Threshold
+            productGroupType = AisProductGroupType.getRandomProductGroupTypeForGstExportableCountries().name();
+            testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                            getAisBelowThresholdCondition(AIS_GST_THRESHOLD_PRICE)),
+                    buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+            testDTO = generateTestDTO(testDTORequest);
+            AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, gstExportableCountry.getCountryDisplayName(), false, false);
+            CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+            checkoutPage.isImportFeeDepositLinkAbsent(ImportFeesStrings.getCheckoutIfdString(exportableCountry));
+        }
+
+        @Test(description = "C159957, "
+                + "Verify \"Estimated GST/VAT\" link is not displayed when checkout Above threshold ASINs for GVC Exportable countries and 'IFD' link is displayed when checkout Above threshold ASINs for GVC Exportable countries",
+                groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT, GROUP_GVC_ABOVE_THRESHOLD, FeatureGroups.RUN_CHECKOUT_PARTNER_PIPELINE})
+        public void testEstimatedGSTLinkAndIFDForAboveThresholdAsin() throws Exception {
+            //Overriding Product Group Type since all AIS Product Group type is not returned ASIN for above Threshold
+            productGroupType = AisProductGroupType.getRandomProductGroupTypeForGstExportableCountries().name();
+            testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                            getAisAboveThresholdCondition(AIS_GST_THRESHOLD_PRICE)),
+                    buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+            testDTO = generateTestDTO(testDTORequest);
+            AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, gstExportableCountry.getCountryDisplayName(), false, false);
+            CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+            Assert.assertFalse(checkoutPage.isEstimatedGSTLinkPresent(GVCStrings.getGVCCheckoutString(gstExportableCountry)), "Estimated GST/VAT/ST link is present for Above threshold ASIN for GVC Exportable Countries.");
+            checkoutPage.clickImportFeeDepositLink(ImportFeesStrings.getCheckoutIfdString(exportableCountry));
+            AISCheckoutHelper.validateHelpContentPageIsDisplayed(ImportFeesStrings.getCheckoutIfdString(exportableCountry).replaceAll("[^a-zA-Z ]", ""), sourceCountryCode, driver);
+        }
+
+    @Test(description = "C159977, "
+            + "Verify 'Estimated GST/VAT to be collected' link is displayed and clickable in 'SPC' page using ACCB Payment",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT, GROUP_GVC_BELOW_THRESHOLD})
+    public void testEstimatedGSTLinkIsPresentAndClickableForBelowThresholdAsinUsingACCBPayment() throws Exception {
+        //Overriding Product Group Type since all AIS Product Group type is not returned ASIN for above Threshold
+        productGroupType = AisProductGroupType.getRandomProductGroupTypeForGstExportableCountries().name();
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getAisBelowThresholdCondition(AIS_GST_THRESHOLD_PRICE)),
+                buildTestAccountRequest(AccountConstants.TAG_ACCB_PAYMENT));
+        testDTO = generateTestDTO(testDTORequest);
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, gstExportableCountry.getCountryDisplayName(), true, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        Assert.assertTrue(checkoutPage.isEstimatedGSTLinkForACCBPaymentPresent(GVCStrings.getGVCCheckoutString(gstExportableCountry)), "Estimated GST/VAT/ST link is not present for Below threshold ASIN for GVC Exportable Countries.");
+        checkoutPage.clickEstimatedGSTLinkForACCBPayment(GVCStrings.getGVCCheckoutString(gstExportableCountry));
+        AISCheckoutHelper.validateTaxHelpPageIsDisplayed(GVCTaxPercentageAndHelpNodeIDs.valueOf(sourceCountryCode).getGvcHelpNodeIDs(), gstExportableCountry, sourceCountryCode, driver);
+    }
+
+    @Test(description = "C159967, "
+            + "Verify Estimated GST to be collected is displayed with value '0' for a TAX exemption Asin in GVC destinations",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT, GROUP_GVC_BELOW_THRESHOLD})
+    public void testEstimatedTaxForTaxExemptItems() throws Exception {
+        //If any GVC destination that does not have tax-exempt (Ex. NZ) is picked up (corresponding gl type will be null), it is overridden to AU
+        if (AIS_GVC_TAX_EXEMPT_GL_TYPE_VALUE.isEmpty()){
+            exportableCountry = Country.AU;
+            //Since AU country is overriding, Assigning the AU country GL type value to "AIS_GVC_TAX_EXEMPT_GL_TYPE_VALUE".
+            AIS_GVC_TAX_EXEMPT_GL_TYPE_VALUE =  GVCTaxExemptGlsTypeValues.valueOf(exportableCountry.toString()).getGVCTaxExemptGlsTypeValues();
+         }
+        LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                        getAisTaxExemptHardCodeASIN("aisTaxExemptAsin", AIS_GVC_TAX_EXEMPT_GL_TYPE_VALUE)),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        SoftAssert softAssert = new SoftAssert();
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        softAssert.assertTrue((checkoutPage.getOrderSummaryContentPriceByCell(lmsHelper.getTextForStringId("dvs_estimated_60817")).contains(lmsHelper.getTextForStringId("rcx-sc-order-summary-estimated-tax"))), "Estimated tax to be collected string is not present under Order summary section in SPC page for Tax Exempt Asin");
+        softAssert.assertEquals(fetchPriceFromSPCOrderSummaryInFloat(lmsHelper.getTextForStringId("gvc-checkout-estimated-tax")), 0f ,"Estimated Tax to be collected is not displayed with zero value for TAX exemption Asin");
+        softAssert.assertAll();
+    }
+
+    private CheckoutPage workflowToCheckoutPage (AISCheckoutHelper.RequestData wfRequest) {
+        addWeblabCookie(WeblabConstants.PAX_CHECKOUT_TANGO_DESKTOP_INTERNAL_825140 + " & " +
+                WeblabConstants.PAX_CHECKOUT_TANGO_DESKTOP_ELIGIBILITY_REMOVE_AJAX_ZERO_DEFAULTS_CHECK_965630);
+        CheckoutPage checkoutPage = new CheckoutPage(driver);
+        runWithRetry("WorkflowToAISCheckoutWithRetry", () -> {
+            AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+            return true;
+        }, Throwable.class);
+        return checkoutPage;
+    }
+
+    public float fetchPriceFromSPCOrderSummaryInFloat(String orderSummaryContent) throws Exception {
+        String[] priceValue;
+        final CheckoutPage checkoutPage = new CheckoutPage(driver);
+        priceValue = checkoutPage.getOrderSummaryContentPriceByCell(orderSummaryContent).trim().split(":");
+        return Float.parseFloat(priceValue[1].trim().replaceAll("[^0-9.,]",""));
+    }
+}
