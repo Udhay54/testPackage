@@ -1,0 +1,191 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.locale.cart.CartPageLocale;
+import com.amazon.aeeqa.ui.pagemodels.globalnav.GlobalNavPage;
+import com.amazon.aeeqa.ui.pagemodels.home.GlowWidget;
+import com.amazon.aeeqa.ui.pagemodels.home.HomePage;
+import com.amazon.dtk.localization.Marketplace;
+
+import org.openqa.selenium.WebDriver;
+import org.testng.Assert;
+import org.testng.annotations.*;
+import org.testng.asserts.SoftAssert;
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.dataprovider.AISDataProvider;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.*;
+import com.amazon.aeeqa.ui.pagemodels.cart.CartPage;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * Test cases to verify Cart page in Amazon International Shopping mode.
+ * @author mehalaak
+ */
+@Slf4j
+public class CartPageTest extends AISBaseUITest {
+
+    @AfterMethod(alwaysRun = true)
+    public void afterCartTestClearCart() {
+        // Run only once and ignore any exception if happened
+        runOnceAndIgnoreAllException("AISCartClearCart", () -> {
+            CartHelper.clearItemsInCart(driver);
+            return true;
+        });
+    }
+
+    @Test(description = "C65131, "
+            + "Verify AIS user should not see Prime badge and Free returns message for items in 'Active cart' and" +
+            "'Save for Later' section",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CART, FeatureGroups.RUN_CART_PARTNER_PIPELINE},
+            dataProvider = AISDataProvider.AIS_PRIME_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testPrimeBadgeAbsentAndFreeReturnsAvailabilityInActiveCartAndSFLPage(final TestDTO testDTO) throws Exception {
+        workflowToCartPage(testDTO, driver, exportableCountry.getCountryDisplayName());
+        final CartPage cartPage =  new CartPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertFalse(cartPage.isPrimeBadgeDisplayedInActiveCart(), "Prime badge should not be displayed for AIS ASINs in Active cart");
+        if (cartPage.isFreeReturnsMessagePresentInActiveCart()) {
+            softAssert.assertEquals(cartPage.getFreeReturnsMessageInActiveCart().trim(), CartPageLocale.EXPORTS_FREE_RETURN_OPTION.getI18NContent(), String.format("Observed FREE Returns Message: [%s] doesn't contain expected message: [%s] in Active cart",
+                    cartPage.getFreeReturnsMessageInActiveCart(), CartPageLocale.EXPORTS_FREE_RETURN_OPTION.getI18NContent()));
+        }
+        cartPage.clickSaveForLater();
+        softAssert.assertFalse(cartPage.isPrimeBadgeDisplayedInSaveForLater(testDTO.getTestASIN().getAsin()), "Prime badge should not be displayed for AIS ASINs in SFL");
+        if (cartPage.isFreeReturnsMessagePresentInSaveForLater()) {
+            softAssert.assertEquals(cartPage.getFreeReturnsMessageInSFL().trim(), CartPageLocale.EXPORTS_FREE_RETURN_OPTION.getI18NContent(), String.format("Observed FREE Returns Message: [%s] doesn't contain expected message: [%s] in SFL",
+                    cartPage.getFreeReturnsMessageInSFL(), CartPageLocale.EXPORTS_FREE_RETURN_OPTION.getI18NContent()));
+        }
+        softAssert.assertAll();
+        CartHelper.clearItemsInCart(driver);
+    }
+
+    // TODO: Enable this test after this ticket is resolved: https://t.corp.amazon.com/P47409589/
+    @Test(description = "C65312, "
+            + "Verify Free Shipping is suppressed in Active cart",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CART, FeatureGroups.RUN_CART_PARTNER_PIPELINE},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_AND_ASIN,
+            dataProviderClass = AISDataProvider.class,
+            enabled = false)
+    public void testFreeShippingMessageSuppressed(final TestDTO testDTO) throws Exception {
+        workflowToCartPage(testDTO, driver, exportableCountry.getCountryDisplayName());
+        final CartPage cartPage =  new CartPage(driver);
+        final String eligibleForFreeShippingText = lmsHelper.getTextForStringId("jumpin_msg_free_shipping");
+        Assert.assertFalse(cartPage.isEligibleForFreeShippingTextInActiveCart(eligibleForFreeShippingText), "Eligible for Free shipping message should not be displayed for AIS ASIN in Carts");
+        CartHelper.clearItemsInCart(driver);
+    }
+
+    @Test(description = "C243615, "
+            + "Verify International customers should not see free shipping message on FLC (Fully landed Cost) widget",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CART},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testFreeShippingMessageAbsentInCartFLC(final TestDTO testDTO)  {
+        final CartPage cartPage = new CartPage(driver);
+        workflowToCartPage(testDTO, driver, exportableCountry.getCountryDisplayName());
+        final String eligibleForFreeShippingText = lmsHelper.getTextForStringId("jumpin_msg_free_shipping");
+        Assert.assertFalse(cartPage.isShippingBenefitTextInCartFLCPresent(eligibleForFreeShippingText), "Free Shipping Message displayed on FLC (Fully landed Cost) widget");
+    }
+
+    @Test(description = "C65130, "
+            + "Verify AIS user should not see Amazon Store Card promotion",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.CART, FeatureGroups.RUN_CART_PARTNER_PIPELINE},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testPromotionContainerSuppressed(final TestDTO testDTO) throws Exception {
+        workflowToCartPage(testDTO, driver, exportableCountry.getCountryDisplayName());
+        final CartPage cartPage =  new CartPage(driver);
+        Assert.assertFalse(cartPage.isPromotionContainerDisplayed(), "Promotion container should not be displayed for AIS user in Cart page");
+        CartHelper.clearItemsInCart(driver);
+    }
+
+    @Test(description = "C232375, "
+            + "Verify AIS customers should see title displayed in all P13N widgets in the page",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.CART},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testP13NWidgetsTitleInCart(final TestDTO testDTO)  {
+        final CartPage cartPage = new CartPage(driver);
+        workflowToCartPage(testDTO, driver, exportableCountry.getCountryDisplayName());
+        String[] language = new String[]{"en", "de", "he"};
+        String[] languageCountryCode = new String[]{"US", "DE", "IL"};
+        SoftAssert softAssert = new SoftAssert();
+        int i=0;
+        try {
+            while (i < language.length) {
+                for (int j = 0; j < cartPage.getP13NWidgetsCountInCart(); j++) {
+                    softAssert.assertTrue(cartPage.isP13NWidgetPresentInCart(j), "P13N widget is mising");
+                    softAssert.assertTrue(cartPage.isP13NWidgetTitlePresent(j), "P13N widget title is mising");
+                }
+                String languageCode = language[i] + "_" + languageCountryCode[i];
+                LanguageHelper.switchToAnyLanguage(driver, url, languageCode);
+                CartHelper.goToCartPage(driver, url);
+                i++;
+            }
+        softAssert.assertAll();
+        } finally {
+            String languageCode = LANGUAGE_CODE + "_" + COUNTRY_CODE;
+            LanguageHelper.switchToAnyLanguage(driver, url, languageCode);
+        }
+    }
+
+    @Test(description = "C243617, "
+            + "Verify International customers should not see Amazon Prime Rewards Visa card promotion",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.CART},
+            dataProvider = AISDataProvider.AIS_PRIME_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testAmazonRewardsVisaPromotionCardSuppressed(final TestDTO testDTO)  {
+        final CartPage cartPage = new CartPage(driver);
+        workflowToCartPage(testDTO, driver, exportableCountry.getCountryDisplayName());
+        Assert.assertFalse(cartPage.isAmazonRewardsVisaPromotionContainerPresent(), "Amazon Rewards visa promotion card is not suppressed above Active cart");
+    }
+
+    //TODO This test case should be considered in the future to modify the implementation to avoid hardcoded values. [D92530623]
+    @Test(description = "C232350, "
+            + "Verify Shopping Cart Heading string in chosen LOP",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.CART},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_AND_ASIN,
+            dataProviderClass = AISDataProvider.class,enabled = true)
+    public void testShoppingCartHeadingText(final TestDTO testDTO)  {
+        final CartPage cartPage = new CartPage(driver);
+        workflowToCartPage(testDTO, driver, exportableCountry.getCountryDisplayName());
+        String[] language = new String[]{"en", "de", "ar"};
+        String[] languageCountryCode = new String[]{"US", "DE", "AE"};
+        String[] languageText = new String[]{"English", "Deutsch", "الترجمة"};
+        String[] languageSaveButtonText = new String[]{"Save", "Änderungen", "التغييرات"};
+        SoftAssert softAssert = new SoftAssert();
+        final HomePage homePage = new HomePage(driver);
+        int i=0;
+        //Using do while as we want to run the test once for EN and then for an LTR and RTL
+        try {
+            do{
+                homePage.switchToNonEnglishLanguage(languageText[i], languageSaveButtonText[i]);
+                final String shoppingCartHeadingLocalizedText = CartPageLocale.RCX_SC_SHOPPING_CART.getI18NContentForCustomLocale(languageCountryCode[i], language[i]);
+                softAssert.assertTrue(cartPage.getShoppingCartHeadingText().contains(shoppingCartHeadingLocalizedText), "Shopping Cart Heading string displayed in cart page is not reflected in chosen LOP");
+                i++;
+            } while(i < language.length);
+        softAssert.assertAll();
+        } finally {
+            homePage.switchToNonEnglishLanguage(languageText[0], languageSaveButtonText[0]);
+        }
+    }
+
+    /**
+     * Method to Add ASIN from Cart Internal Tool Interface and lands on Cart page.
+     */
+    private void workflowToCartPage(final TestDTO testDTO, final WebDriver driver, String countryName) {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, countryName, url);
+        driver.navigate().refresh();
+        //Adding this check to verify if AIS mode has been entered
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        String offerListingValue = detailPage.getOfferListingValue();
+        CartHelper.addItemsToCart(driver, testDTO.getTestASIN().getAsin(), offerListingValue);
+        CartHelper.goToCartPage(driver,url);
+        driver.navigate().refresh();
+    }
+}
