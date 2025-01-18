@@ -1,0 +1,102 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.AGSBaseUITest;
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.CurrencySelectionHelper;
+import com.amazon.aeeqa.ui.helper.DetailPageHelper;
+import com.amazon.aeeqa.ui.helper.LanguageHelper;
+import com.amazon.aeeqa.ui.helper.LocationHelper;
+import com.amazon.aeeqa.ui.pagemodels.aod.AODPage;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.testng.Assert;
+import org.testng.annotations.*;
+import org.testng.asserts.SoftAssert;
+
+/**
+ * Test Case to Verify All Offers Display (AOD) Page  for aIS.
+ *
+ * @author vllaks
+ *
+ */
+@Slf4j
+public class AODPageTest extends AISBaseUITest {
+
+    @BeforeClass(alwaysRun = true)
+    public void AODInitTestData() {
+        //Overriding Product Group Type since this class use SDC config for ASIN which is mapped only for gl_pc
+        productGroupType = "gl_toy";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getAisHardCodeASIN("aisHasAODAndMBC")), null /* no account */);
+        testDTO = generateTestDTO(testDTORequest);
+    }
+
+    public void workflowToChangeLocationAndNavigateAODPage(TestDTO testDTO) {
+        if (testDTO == null || testDTO.getTestASIN() == null) {
+            log.warn("ASIN not there, ignoring @BeforeMethod body.");
+            return;
+        }
+        runWithRetry("DetailPageTest#changeLocationToEnterAISModeAndGoToDetailPage", () -> {
+            if (testDTO.getTestAccount() != null) {
+                LocationHelper.signInAndChangeLocation(driver, testDTO, exportableCountry.getCountryDisplayName(), url);
+            } else {
+                LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+            }
+            driver.navigate().refresh();
+            DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+            DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+            final DetailPage detailPage = new DetailPage(driver);
+            detailPage.clickAODLink();
+            return true;
+        }, Throwable.class);
+    }
+
+    @Test(description = "C232345, Verfiy Condition,Price,International Shipping fee , " +
+            "Delivery Details and Add to Cart for other offers below the filter dropdown",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.AOD})
+    public void testAODOffersContentsPresent() throws Exception {
+        workflowToChangeLocationAndNavigateAODPage(testDTO);
+        final AODPage aodPage = new AODPage(driver);
+        aodPage.verifyCurrentPage();
+        aodPage.verifyAODOffersDetailsPresent();
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(aodPage.itemConditionForAODOffersIsPresent("New"), "Item Condition New is not " +
+                "Present for AOD Offers in AIS Mode");
+        //Todo: https://issues.amazon.com/issues/D36315066.
+        //softAssert.assertTrue(!aodPage.getAODOffersShippingFee().isEmpty(), "Shipping Fee is missing for the AOD Offers");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C232344, Verify Prime and Free shipping suppressed in the Filter of the AOD overlay or page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.AOD})
+    // TODO: Enable this once SG MP issue is fixed - https://i.amazon.com/issues/D46002280
+    @MethodSelector(exclude = "SG")
+    public void testPrimeAndFreeShippingRefinementSuppressedInAISMode() throws Exception {
+        workflowToChangeLocationAndNavigateAODPage(testDTO);
+        final AODPage aodPage = new AODPage(driver);
+        aodPage.verifyAODOffersDetailsPresent();
+        aodPage.clickAODFilterDropDownButton();
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertFalse(aodPage.aodFilterRefinementIsPresent("Free delivery"), "Free Delivery Refinement shouldn't present " +
+                "in AIS Mode");
+        softAssert.assertTrue(aodPage.aodFilterRefinementIsPresent("New"), "New Refinement is missing in AIS Mode " +
+                "in AIS Mode");
+        softAssert.assertFalse(aodPage.aodPrimeFilterRefinementIsPresent(), "Prime Refinement shouldn't present " +
+                "in AIS Mode but its present");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C232343, Verify AOD overlay is displayed on clicking MBC link",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.AOD, FeatureGroups.RUN_PIPELINE})
+    public void testAODLayoutPresentInAISMode() throws Exception {
+        workflowToChangeLocationAndNavigateAODPage(testDTO);
+        final AODPage aodPage = new AODPage(driver);
+        aodPage.verifyCurrentPage();
+    }
+}
