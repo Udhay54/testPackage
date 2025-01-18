@@ -1,0 +1,162 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.testasins.AisProductGroupType;
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.common.*;
+import com.amazon.aeeqa.ui.dataprovider.AISDataProvider;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.*;
+import com.amazon.aeeqa.ui.pagemodels.cart.CartPage;
+import com.amazon.aeeqa.ui.pagemodels.checkout.AddressSelectionPage;
+import com.amazon.aeeqa.ui.pagemodels.checkout.CheckoutPage;
+import com.amazon.aeeqa.ui.pagemodels.checkout.SospPage;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+import org.openqa.selenium.WebDriver;
+import org.testng.Assert;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+
+/**
+ * Test cases to verify Checkout Jumpin Test in Amazon International Shopping mode
+ *
+ * @author vllaks
+ */
+public class CheckoutPageJumpinTest extends AISBaseUITest {
+
+    private static final String GROUP_JUMPIN_BELOW_THRESHOLD = "CheckoutPageJumpin-BelowThreshold";
+    private static final String GROUP_JUMPIN_ABOVE_THRESHOLD = "CheckoutPageJumpin-AboveThreshold";
+    Country initialExportableCountry = null;
+
+    //TODO: Once shift service resolves the above threshold issue, uncomment the following and modify AT method testFreeShippingMessageAboveThreshold
+    /*    @BeforeClass(alwaysRun = true)
+        public void initTestData() {
+            //Overriding FreeShippingExportableCountry to exportableCountry for ASIN retrieval from Cache
+            exportableCountry = freeShippingExportableCountry;
+            testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                    getAisFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE)),
+                    buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+            testDTO = generateTestDTO(testDTORequest);
+        }
+     */
+
+    @BeforeClass(alwaysRun = true)
+    public void setupJumpinValuesAndInitializeExportableCountryToJumpin() {
+        AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC = AISJumpinArcThreshold.valueOf(String.format("%s_%s", sourceCountryCode, freeShippingExportableCountry.toString())).getAISJumpinArcThresholdValue();
+        /**Overriding exportableCountry to Jumpin country as testDTORequest in individual tests is designed with exportableCountry variable input declared in AIS BaseUITest
+         Storing the original exportable country in a new variable to reinitalize back after the tests**/
+        initialExportableCountry = exportableCountry;
+        exportableCountry = freeShippingExportableCountry;
+    }
+
+    @AfterClass(alwaysRun = true)
+    public void reInitializeExportableCountry() {
+        //Other classes' tests may fail if exportableCountry is overriden to freeShippingExportableCountry. Hence, switching back to the original export country chosen in AISBaseUI
+        exportableCountry = initialExportableCountry;
+    }
+
+    @AfterMethod(alwaysRun = true)
+    public void afterCheckoutJumpinTestClearCart() {
+        // Run only once and ignore any exception if happened
+        runOnceAndIgnoreAllException("JumpinTestClearCart", () -> {
+            CartHelper.clearItemsInCart(driver);
+            return true;
+        });
+    }
+
+    @Test(description = "C240854, "
+            + "Verify SOSP and Review Order Page when a customer checkout item above or equal to threshold value shipping to Jumpin Destination",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT, GROUP_JUMPIN_ABOVE_THRESHOLD, FeatureGroups.JUMPIN, FeatureGroups.RUN_CHECKOUT_PARTNER_PIPELINE},
+            enabled = true)
+    //TODO: Enable for JP once Jumpin is launched in JP
+    @MethodSelector(exclude = "JP")
+    public void testFreeShippingMessageAboveThreshold() throws Exception {
+        final CartPage cartPage =  new CartPage(driver);
+        //Overriding Product Group Type since for AT we use SDC config which are currently mapped only for gl_pc
+        productGroupType = "gl_pc";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getJumpinHardCodeASIN("aisFreeShipping")), buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        Assert.assertTrue(checkoutPage.isShippingBenefitPromotionPresent(lmsHelper.getTextForStringId("jumpin_msg_free_shipping")), "Free Shpping Message is not displaying for above threshold ASIN checkout for Jumpin Countries");
+        Assert.assertFalse(checkoutPage.isQualifyForFreeShippingLinkPresent(), "Qualify for Free Shipping link is displaying for above threshold Asin Checkout for Jumpin Countries");
+    }
+
+    @Test(description = "C240855, "
+            + "SPC-Verify the behavior when a customer changes address to FS country/city, FS ship option is recalculated to determine if country/cart meets FS eligibility",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.CHECKOUT, GROUP_JUMPIN_ABOVE_THRESHOLD, FeatureGroups.JUMPIN},
+            enabled = true)
+    //TODO: Enable for JP once Jumpin is launched in JP
+    @MethodSelector(exclude = "JP")
+    public void testChangeToFSDestinationAboveThreshold() throws Exception {
+        //Overriding Product Group Type since for AT we use SDC config which are currently mapped only for gl_pc
+        productGroupType = "gl_pc";
+        //To get HardCode ASIN for AIS Free Shipping
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getJumpinHardCodeASIN("aisFreeShipping")), buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        Country randomExportableCountry = Country.getRandomAISExportableCountryFromMostOftenList();
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, randomExportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        final String JUMPIN_ADDRESS_NAME = String.format("%s Address", freeShippingExportableCountry);
+        checkoutPage.clickChangeShippingAddressLink();
+        checkoutPage.changeShippingAddressByAddressName(JUMPIN_ADDRESS_NAME);
+        final AddressSelectionPage addressSelectionPage = new AddressSelectionPage(driver);
+        addressSelectionPage.clickUseThisAddressButton();
+        //For KYC Related Countries, KYC is displayed after clicking Continue from the SOSP Page
+        checkoutPage.getKYCWidgetPage().clickOnSkipKYCPageIfPresentAndContinue();
+        checkoutPage.isLoadingSpinnerHasDisappeared();
+        Assert.assertTrue(checkoutPage.isShippingBenefitPromotionPresent(lmsHelper.getTextForStringId("jumpin_msg_free_shipping")), "Free Shpping Message is not displaying for above threshold ASIN checkout for Jumpin Countries");
+    }
+
+    @Test(description = "C240852, "
+            + "Verify SOSP and Review Order Page when a customer checkout item below threshold value shipping to Jumpin Destination",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT, GROUP_JUMPIN_BELOW_THRESHOLD, FeatureGroups.JUMPIN, FeatureGroups.RUN_CHECKOUT_PARTNER_PIPELINE},
+            enabled = true)
+    //TODO: Enable for JP once Jumpin is launched in JP
+    @MethodSelector(exclude = "JP")
+    public void testQualifyForFreeShippingLinPresent() throws Exception {
+        //Overriding FreeShippingExportableCountry to exportableCountry for ASIN retrieval from Cache
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                        getAisEligibleForFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC)),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        Assert.assertFalse(checkoutPage.isShippingBenefitPromotionPresent(lmsHelper.getTextForStringId("jumpin_msg_free_shipping")), "Free Shpping Message is displaying for below threshold ASIN checkout for Jumpin Countries");
+        Assert.assertTrue(checkoutPage.isQualifyForFreeShippingLinkPresent(), "Qualify for Free Shipping link is not displaying for below threshold Asin Checkout for Jumpin Countries");
+    }
+
+    private CheckoutPage workflowToCheckoutPage (AISCheckoutHelper.RequestData wfRequest) {
+        addWeblabCookie(WeblabConstants.PAX_CHECKOUT_TANGO_DESKTOP_INTERNAL_825140 + " & " +
+                WeblabConstants.PAX_CHECKOUT_TANGO_DESKTOP_ELIGIBILITY_REMOVE_AJAX_ZERO_DEFAULTS_CHECK_965630);
+        CheckoutPage checkoutPage = new CheckoutPage(driver);
+        AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+        return checkoutPage;
+    }
+
+    @Test(description = "C240853, "
+            + "Verify TSPC page for Prime Customer with a below threshold ASIN shipping to a Jumpin Destination",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT, FeatureGroups.JUMPIN, GROUP_JUMPIN_BELOW_THRESHOLD},
+            enabled = true)
+    public void testJumpinBelowThresholdCheckoutForPrime() throws Exception {
+        //Overriding FreeShippingExportableCountry to exportableCountry for ASIN retrieval from Cache
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                        getAisEligibleForFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC)),
+                buildTestAccountRequest(AccountConstants.TAG_PRIME_AIS));
+        testDTO = generateTestDTO(testDTORequest);
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertFalse(checkoutPage.isShippingBenefitPromotionPresent(lmsHelper.getTextForStringId("jumpin_msg_free_shipping")), "Free Shpping Message is displaying for below threshold ASIN checkout for Jumpin Countries");
+        softAssert.assertFalse(checkoutPage.getSelectedShipOptionDescriptionInOrderSummary(0).contains(lmsHelper.getTextForStringId("prime-free_35611")+" " +lmsHelper.getTextForStringId("AG_std-intl_so_desc_21435")), "Free Shipping option is displayed in ship option in SPC Page");
+        softAssert.assertAll();
+    }
+}
