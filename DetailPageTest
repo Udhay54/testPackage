@@ -1,0 +1,459 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import java.text.DecimalFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import com.amazon.aeeqa.locale.ImportFeesStrings;
+import com.amazon.aeeqa.locale.detail.DetailPageLocale;
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.common.*;
+import com.amazon.aeeqa.ui.dataprovider.AISDataProvider;
+
+import com.amazon.aeeqa.ui.pagemodels.wishlist.WishListPage;
+import org.apache.commons.lang3.StringUtils;
+import org.testng.Assert;
+import org.testng.asserts.SoftAssert;
+import org.testng.annotations.Test;
+
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.*;
+import com.amazon.aeeqa.ui.pagemodels.cart.CartPage;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * Detail page tests.
+ *
+ * @author tingyong
+ */
+@Slf4j
+public class DetailPageTest extends AISBaseUITest {
+
+    public void changeLocationToEnterAISModeAndGoToDetailPage(final TestDTO testDTO, boolean signINRequired){
+        Assert.assertFalse(testDTO.getTestASIN().getAsin().isEmpty(),"ASIN not there, cannot proceed with this test");
+        if(signINRequired) {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, exportableCountry.getCountryDisplayName(), url);
+        } else {
+        LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+        }
+        driver.navigate().refresh();
+        //TODO: Experimental weblab AEE_TLC_US_NEW_CX_EXPERIMENTAL_361484 is yet to be launched. Forcing it to C. If weblab gets launched, update to new UI by following https://issues.amazon.com/issues/P51967558
+        addWeblabCookie(WeblabConstants.AEE_TLC_US_NEW_CX_EXPERIMENTAL_361484);
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        //Adding this check to verify if AIS mode has been entered
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+        DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+    }
+
+    @Test(description = "C65121, "
+            + "Verify AIS user should see TLC messaging on the export eligible product detail page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.RUN_PIPELINE, FeatureGroups.TLC},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    //TODO: Enable other AIS MPs once TLC is launched in new AIS MPs
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    public void testTotalLandedCostMessageDisplayed(final TestDTO testDTO) throws Exception {
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        final String totalLandedCostMessage = detailPage.getCountryEligibleText().trim();
+        //Adding Decimal Format to handle case when Shipping Price is E.g. 79.10 where Double.valueOf rounding off to 79.1 and its failing in the Assertion
+        DecimalFormat decimalFormat = new DecimalFormat("0.00");
+        Double extraPrice = Double.valueOf(StringUtils
+                .substringBetween(totalLandedCostMessage, currencySymbol, " ").replace(",", ""));
+        String extraPriceWithCurrencySymbol = currencySymbol + decimalFormat.format(extraPrice);
+        SoftAssert softAssert = new SoftAssert();
+        if (Float.compare(Float.parseFloat(detailPage.getDetailPagePrice(currencyDecimalSeparator).trim().replaceAll("[^0-9.,]", "")), IFDThreshold.valueOf(String.format("%s_%s", exportableCountry, currencyName)).getIFDThresholdValue()) < 0) {
+            softAssert.assertTrue(totalLandedCostMessage.contains(ImportFeesStrings.getTlcMessageForNoIfdWithShippingFeesStringWithMultiplePlaceholderContent(exportableCountry,
+                            Arrays.asList(extraPriceWithCurrencySymbol, exportableCountry.getCountryDisplayName())))
+                    , String.format("The TLC message was not shown correctly in Detail page > price section. Expected[%s]. Found [%s]",
+                            ImportFeesStrings.getTlcMessageForNoIfdWithShippingFeesStringWithMultiplePlaceholderContent(exportableCountry, Arrays.asList(extraPriceWithCurrencySymbol, exportableCountry.getCountryDisplayName()))
+                            , totalLandedCostMessage));
+        } else {
+            softAssert.assertTrue(totalLandedCostMessage.contains(ImportFeesStrings.getTlcMessageForIfdWithShippingFeesStringWithMultiplePlaceholderContent(exportableCountry ,
+                            Arrays.asList(decimalFormat.format(extraPrice), exportableCountry.getCountryDisplayName())))
+                    , String.format("The TLC message  was not shown correctly in Detail page > price section. Expected[%s]. Found [%s]",
+                            ImportFeesStrings.getTlcMessageForIfdWithShippingFeesStringWithMultiplePlaceholderContent(exportableCountry, Arrays.asList(extraPriceWithCurrencySymbol, exportableCountry.getCountryDisplayName()))
+                            , totalLandedCostMessage));
+        }
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C84418, "
+            + "Verify AIS user should see TLC messaging on buybox on the export eligible product detail page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.BUYBOX, FeatureGroups.TLC},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    //TODO: Enable other AIS MPs once TLC is launched in new AIS MPs
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    public void testTotalLandedCostMessageOnBuyboxDisplayed(final TestDTO testDTO) throws Exception {
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        final String totalLandedCostMessage = detailPage.getCountryEligibleTextOnBuybox().trim();
+        //Adding Decimal Format to handle case when Shipping Price is E.g. 79.10 where Double.valueOf rounding off to 79.1 and its failing in the Assertion
+        DecimalFormat decimalFormat = new DecimalFormat("0.00");
+        Double extraPrice = Double.valueOf(StringUtils
+                .substringBetween(totalLandedCostMessage, currencySymbol, " ").replace(",", ""));
+        String extraPriceWithCurrencySymbol = currencySymbol + decimalFormat.format(extraPrice);
+        SoftAssert softAssert = new SoftAssert();
+        if (Float.compare(Float.parseFloat(detailPage.getDetailPagePrice(currencyDecimalSeparator).trim().replaceAll("[^0-9.,]", "")), IFDThreshold.valueOf(String.format("%s_%s", exportableCountry, currencyName)).getIFDThresholdValue()) < 0) {
+            softAssert.assertTrue(detailPage.getCountryEligibleTextOnBuybox().contains(ImportFeesStrings.getTlcMessageForNoIfdWithShippingFeesStringWithMultiplePlaceholderContent(exportableCountry,
+                            Arrays.asList(extraPriceWithCurrencySymbol, exportableCountry.getCountryDisplayName())))
+                    , (String.format("The TLC message was not shown correctly on buybox under Detail page > right side bar > price section. Expected[%s]. Found [%s]",
+                            ImportFeesStrings.getTlcMessageForNoIfdWithShippingFeesStringWithMultiplePlaceholderContent(exportableCountry,
+                                    Arrays.asList(extraPriceWithCurrencySymbol, exportableCountry.getCountryDisplayName()))
+                            , detailPage.getCountryEligibleTextOnBuybox())));
+        } else {
+            softAssert.assertTrue(detailPage.getCountryEligibleTextOnBuybox().contains(ImportFeesStrings.getTlcMessageForIfdWithShippingFeesStringWithMultiplePlaceholderContent(exportableCountry,
+                            Arrays.asList(extraPriceWithCurrencySymbol, exportableCountry.getCountryDisplayName())))
+                    , String.format("The TLC message was not shown correctly on buybox under Detail page > right side bar > price section. Expected[%s]. Found [%s]",
+                            ImportFeesStrings.getTlcMessageForIfdWithShippingFeesStringWithMultiplePlaceholderContent(exportableCountry,
+                                    Arrays.asList(extraPriceWithCurrencySymbol, exportableCountry.getCountryDisplayName()))
+                            , detailPage.getCountryEligibleTextOnBuybox()));
+        }
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C65123, "
+            + "Verify TLC Details link is clickkable",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.TLC},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    //TODO: Enable other AIS MPs once TLC is launched in new AIS MPs
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    public void testTotalLandedCostDetailsLinkClickable(final TestDTO testDTO) throws Exception {
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.verifyTotalLandedCostDetailsLinkPresentAndClickable();
+    }
+
+    @Test(description = "C65324, "
+            + "Verify TLC Details link on buybox is clickkable",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.BUYBOX, FeatureGroups.TLC},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    //TODO: Enable other AIS MPs once TLC is launched in new AIS MPs
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    public void testTotalLandedCostDetailsLinkLOnBuyboxClickable(final TestDTO testDTO) throws Exception {
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.verifyTotalLandedCostDetailsLinkOnBuyboxPresentAndClickable();
+    }
+
+    @Test(description = "C65313, "
+            + "Verify TLC Details link popover is not blank",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.TLC},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    //TODO: Enable other AIS MPs once TLC is launched in new AIS MPs
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    public void testTotalLandedCostDetailsLinkPopoverNotBlank(final TestDTO testDTO) throws Exception {
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        final String detailsPopoverHead = detailPage.getTotalLandedCostDetailsPopoverHeadText();
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertEquals(detailsPopoverHead, DetailPageLocale.AG_SHIP_MSG_POPOVER_HEADER.getI18NContent(),
+                "The TLC widget heading text doesn't match.");
+        List<String> priceValueListInTLCPriceBlock = getPriceValuesFromTLCWidgetInDetailPage(detailPage, false);
+        priceValueListInTLCPriceBlock.forEach(priceValueLineItem ->
+                softAssert.assertTrue(Double.valueOf(priceValueLineItem.trim().substring(1).replace(",", "")).compareTo(0.0) >= 0,
+                        String.format("Invalid price shown for %s line item", priceValueLineItem)));
+        detailPage.closeDetailsPopover();
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C65325, "
+            + "Verify TLC Details link popover on buybox is not blank",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.BUYBOX, FeatureGroups.TLC},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    //TODO: Enable other AIS MPs once TLC is launched in new AIS MPs
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    public void testTotalLandedCostDetailsLinkPopoverOnBuyboxNotBlank(final TestDTO testDTO) throws Exception {
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        final String detailsPopoverHead = detailPage.getTotalLandedCostDetailsPopoverOnBuyboxHeadText();
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertEquals(detailsPopoverHead, DetailPageLocale.AG_SHIP_MSG_POPOVER_HEADER.getI18NContent(),
+                "The TLC widget heading text doesn't match.");
+        List<String> priceValueListInTLCBuyBox = getPriceValuesFromTLCWidgetInDetailPage(detailPage, true);
+        priceValueListInTLCBuyBox.forEach(priceValueLineItem ->
+                softAssert.assertTrue(Double.valueOf(priceValueLineItem.trim().substring(1).replace(",", "")).compareTo(0.0) >= 0,
+                        String.format("Invalid price shown for %s line item", priceValueLineItem)));
+        detailPage.closeDetailsPopover();
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C65122, "
+            + "Verify AIS user should not see Prime Badging on DP product Price",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.PRIME, FeatureGroups.BUYBOX},
+            dataProvider = AISDataProvider.AIS_PRIME_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testNoPrimeBadge(final TestDTO testDTO) throws Exception {
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, true);
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.verifyPrimeBadgeAbsentInPriceBlock();
+        detailPage.verifyPrimeBadgeAbsentInBuyBox();
+    }
+
+    @Test(description = "C65125, "
+            + "Verify AIS user should see <ship to <country> message and Delivery messaging on delivery messaging block in Buybox",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.PRIME, FeatureGroups.BUYBOX},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    // For now, testing UDM messaging only
+    public void testUDMMessageDisplayed(final TestDTO testDTO) throws Exception {
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        Assert.assertTrue(StringUtils.isNotBlank(detailPage.getDetailPageAboveTheFold().getUDMMessage()), "No delivery message found.");
+    }
+
+    @Test(description = "C65127, "
+            + "Verify AIS users should not see Free shipping message in Buybox",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.BUYBOX},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testFreeShippingMessageAbsentInBuybox(final TestDTO testDTO) throws Exception {
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        Assert.assertFalse(isFreeShippingMessage(detailPage.getDetailPageAboveTheFold().getUDMMessage()),
+                "Free shipping message is displayed in Buybox");
+    }
+
+    @Test(description = "C276590, "
+            + "Verify International customers should not see Free shipping message on AOD link section & MBC Section",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL})
+    public void testFreeShippingMessageAbsentInAODAndMBCLink() throws Exception {
+        //Overriding Product Group Type since this class use SDC config for ASIN which is mapped only for gl_pc
+        productGroupType = "gl_toy";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getAisHardCodeASIN("aisHasAODAndMBC")), null /* no account */);
+        testDTO = generateTestDTO(testDTORequest);
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertFalse(isFreeShippingMessage(detailPage.getTextFromAODLink()),
+                "Free shipping message is displayed in AOD section");
+        //TODO: Remove below code, once MBC widget permanently suppressed WW  - https://sim.amazon.com/issues/D132055807
+       /* List<DetailPage.MBCOffer> mbcOffers = detailPage.getMBCOffersData();
+        Assert.assertTrue(mbcOffers.size() > 0, "No MBC offers displayed. Unable to proceed with test");
+        for (DetailPage.MBCOffer mbcOffer : mbcOffers) {
+            softAssert.assertFalse(isFreeShippingMessage(mbcOffer.getShipping().trim()),
+                    String.format("Free shipping message is displayed in MBC section", mbcOffer));
+        }*/
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C124857, "
+            + "Verify AIS user able to add Items to Cart from Details Page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.BUYBOX},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testAddToCartButtonIsClickable(final TestDTO testDTO) throws Exception {
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        DetailPageHelper.addToCartAndGoToCartPage(driver, url);
+        final CartPage cartPage = new CartPage(driver);
+        cartPage.verifyCurrentPage();
+    }
+
+    //TODO: Enable after SNS supprrssion is implemented by home team - https://sim.amazon.com/issues/D57142532
+    @Test(description = "C232379, "
+            + "Verify Subscribe & Save Item in the Exports Mode not have SNS Options",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.BUYBOX},
+            enabled = false)
+    public void testSubscribeAndSaveOptionDisabled() throws Exception {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getAisSNSAsinConditions()), null /* no account */);
+        testDTO = generateTestDTO(testDTORequest);
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.getDetailPageAboveTheFold().verifySubscribeAndSaveOptionIsDisabled();
+    }
+    //TODO: Disabiling the case since AIS exportable countries (AU,JP,MX etc.) are now Free Returns eligible destinations - https://sim.amazon.com/issues/D120366252
+    @Test(description = "C232385, "
+            + "AIS user should not see Free Returns message near product price in price block & Buybox on Detail Page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class,enabled = false)
+    public void testFreeReturnsMessageIsDisabled(final TestDTO testDTO) throws Exception {
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        SoftAssert softAssert = new SoftAssert();
+        final DetailPage detailPage = new DetailPage(driver);
+        softAssert.assertFalse(detailPage.getDetailPageAboveTheFold().isFreeReturnsMessageInPriceBlockPresent(), "Free returns message near Price block in detail page should not be present in export mode");
+        softAssert.assertFalse(detailPage.getDetailPageAboveTheFold().isFreeReturnsMessageInBuyBoxPresent(), "Free returns message should not be present in Buybox of detail page in export mode");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C232381, "
+            + "Verify Buy Box for \"In-eligible Asin\" in international shopping mode",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL})
+     public void  testBuyboxForIneligibleAsin() throws Exception {
+        Country initialExportableCountry = null;
+        try {
+            //Overriding exportableCountry a least visited country in AIS to get in-eligibility message and storing the original exportable country in a new variable as sometimes ASIN check fails due to reinitalization
+            initialExportableCountry = exportableCountry;
+            if (COUNTRY_CODE.equals("US")) {
+                //Overriding to a least visited country in AIS to get in-eligibility message.
+                exportableCountry = Country.GG;
+            } else if (COUNTRY_CODE.equals("JP")) {
+                //Overriding to a least visited country in AIS to get in-eligibility message.
+                exportableCountry = Country.NG;
+            }
+            LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+            final DetailPage detailPage = new DetailPage(driver);
+            productGroupType = "gl_pc";
+            testDTORequest = buildTestDTORequest(buildTestAsinRequest(getAisHardCodeASIN("aisIneligibleAsin")), null /* no account */);
+            testDTO = generateTestDTO(testDTORequest);
+            DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+            AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+            SoftAssert softAssert = new SoftAssert();
+            //TODO: Enable quantity dropdown validation, once the issue is fixed - https://issues.amazon.com/issues/V1376595632
+            //softAssert.assertFalse(detailPage.getDetailPageAboveTheFold().isItemQuantityDropdownPresent(), "Item dropdown box is displayed when delivery location is ineligible in export mode");
+            //Sometimes ineligible ASINs have "See Similar Items" (EAW widget) but not all. When EAW shows up, there will be no ATC nor Export ineligible ATC.
+            //EAW is only launched in US AIS
+            softAssert.assertFalse(detailPage.isAddToCartButtonPresent(), "Add to Cart button is shown for ineligibile ASINs");
+            softAssert.assertTrue(detailPage.getDetailPageAboveTheFold().isUndeliverableMessageInBuyBoxPresent(), "Un-deliverable message in buy-box is missing for in-eligible location");
+            softAssert.assertTrue(detailPage.getDetailPageAboveTheFold().isUndeliverableMessageInPriceBlockPresent(), "Un-deliverable message in the Price block is missing for in-eligible location");
+            softAssert.assertAll();
+        } finally {
+            //Rest of the tests are failing in the suite as exportableCountry is overriden to GG. Hence, switching back to the original export country chosen in AISBaseUI
+            exportableCountry = initialExportableCountry;
+        }
+    }
+
+    @Test(description = "C232383, "
+            + "Verify Buy Used Option is not displaying on the Buy Box for the Item that has both Used & New Condition",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL},enabled = false)
+    //TODO: Rework implementation of this case after exports BB buy used scope is clear.
+    public void testBuyUsedIsNotPresent() throws Exception {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getAisHardCodeASIN("aisHasAODAndMBC")), null /* no account */);
+        testDTO = generateTestDTO(testDTORequest);
+        LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.getDetailPageAboveTheFold().verifyBuyboxUsedOptionDisabled();
+    }
+
+    @Test(description = "C265492, "
+            + "Verify International customers should see \"Gift Wrap Available\"/Add a Gift message on DP",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL})
+    public void testAddGiftOptionMessageDisplayed() throws Exception {
+        productGroupType = "gl_toy";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getAisHardCodeASIN("isGiftWrapAvailableAsin")), buildTestAccountRequest(AccountConstants.TAG_PRIME_AIS));
+        testDTO = generateTestDTO(testDTORequest);
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.verifyAddGiftOptionsMessagePresent();
+    }
+
+    @Test(description = "C265494, "
+            + "Verify International customers should not see Prime Badging on \"Compare to similar items\" widget",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL})
+    public void testPrimeBadgeAbsentInCompareWithSimilarItems() throws Exception {
+        productGroupType = "gl_pc";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getAisHardCodeASIN("aisHasCompareWithSimilarItemWidget")), buildTestAccountRequest(AccountConstants.TAG_PRIME_AIS));
+        testDTO = generateTestDTO(testDTORequest);
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, true);
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.getDetailPageBelowTheFold().verifyPrimeBadgeAbsentInCompareWithSimilarItemsWidget();
+    }
+
+    @Test(description = "C265493, "
+            + "Verify International customers should not see Prime Badging on ASIN variations",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.PRIME})
+    public void testNoPrimeBadgeOnASINVariations() throws Exception {
+        //Overriding Product Group Type since this test uses SDC config for ASIN which is mapped only for gl_pc
+        productGroupType = "gl_pc";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getAisHardCodeASIN("aisHasPrimeBadgeInVariations")), buildTestAccountRequest(AccountConstants.TAG_PRIME_AIS));
+        testDTO = generateTestDTO(testDTORequest);
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, true);
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.getDetailPageAboveTheFold().verifyPrimeBadgeAbsentInVariationASINs();
+    }
+
+    @Test(description = "C65126, "
+            + "Verify AIS users should not see HQP \"Ads\" on center of the Detail page",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.DETAIL},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testAdsAbsent(final TestDTO testDTO) throws Exception {
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        Assert.assertFalse(detailPage.isAdsPresent(),
+                "Ads on center of detail page was displayed in AIS mode.");
+    }
+
+    @Test(description = "C65128, "
+            + "Verify AIS user should not see 'Amazon store Card' or 'Amazon Rewards Visa Card' promotion right below price on DP",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.DETAIL})
+    public void testPromotionMessageAbsentBelowPriceOnDP() throws Exception {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(addBasicAisAsinConditions("gl_pc")), null /* no account */);
+        testDTO = generateTestDTO(testDTORequest);
+        //TODO: Need to add one more case with same testing but with prime account
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        Assert.assertFalse((detailPage.getPromotionMessage().contains(lmsHelper.getTextForStringId("cu_sic_amzn_rewards")) || detailPage.getPromotionMessage().contains(
+                lmsHelper.getTextForStringId("sc_ssr_amazon_store_card_51147"))), "'Amazon store Card' or 'Amazon Rewards Visa Card' promotion message displayed right below the DP price");
+    }
+
+    @Test(description = "C65129, "
+            + "Verify AIS user should not see INTL warranty or try prime upsell widgets",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.BUYBOX})
+    public void testWarrantyOrTryPrimeLabelsAbsent() throws Exception {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(addBasicAisAsinConditions("gl_pc")), null /* no account */);
+        testDTO = generateTestDTO(testDTORequest);
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertFalse(detailPage.isProtectionOrWarrantyPresentInBuyBox(), "Warranty Message is displayed for exports");
+        softAssert.assertFalse(detailPage.isPrimeLabelPresentInBuyBox(), "Prime upsell is displayed for exports");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C232380, "
+            + "Verify the Buy Box for the Currently Unavailable ASIN in AIS Mode",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.DETAIL})
+    public void testBuyBoxForCurrenctlyUnavailableAsin() throws Exception {
+        //Overriding Product Group Type since this class use SDC config for ASIN which is mapped only for gl_toy
+        productGroupType = "gl_toy";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getAisHardCodeASIN("aisCurrentlyUnavailableAsin")), buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, true);
+        final DetailPage detailPage = new DetailPage(driver);
+        final String expectedCurrentlyUnavailableText = lmsHelper.getTextForStringId("fallback-oos-buy-box-primary-message");
+        Assert.assertTrue(detailPage.getBuyBoxCurrentlyUnavailalbeMessage().contains(expectedCurrentlyUnavailableText), "Currently Unavailable message is not matched as expected, or not displayed at all.");
+        detailPage.addToList();
+        final WishListPage wishlistPage = new WishListPage(driver);
+        wishlistPage.createAndNavigateToWishListFromDetailPage();
+    }
+
+    private boolean isFreeShippingMessage(final String shippingMessage) {
+        return shippingMessage != null &&
+                shippingMessage.toLowerCase().contains("free shipping") ||
+                shippingMessage.toLowerCase().contains("free delivery");
+    }
+
+    private List<String> getPriceValuesFromTLCWidgetInDetailPage(final DetailPage detailPage, final boolean isBuyBoxTest) {
+        final String[] priceTags = new String[]{DetailPageLocale.AG_SHIP_MSG_PRICE.getI18NContent(),
+                DetailPageLocale.AG_SHIP_MSG_SHIPPING_FEES.getI18NContent(),
+                ImportFeesStrings.getTlcPopoverIfdString(exportableCountry),
+                DetailPageLocale.AG_TOTAL_LANDED_COST_TOTAL.getI18NContent()};
+        List<String> priceValue = new ArrayList<>(priceTags.length);
+        for (String priceTag : priceTags) {
+            if (isBuyBoxTest)
+                priceValue.add(detailPage.getTotalLandedCostDetailsContentPriceByCellOnBuybox(priceTag));
+            else
+                priceValue.add(detailPage.getTotalLandedCostDetailsContentPriceByCell(priceTag));
+        }
+        return priceValue;
+    }
+}
