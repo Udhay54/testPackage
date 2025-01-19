@@ -1,0 +1,794 @@
+package com.amazon.aeeqa.ui.tests.businessutils.ais;
+
+import com.amazon.aeeqa.locale.cart.CartPageLocale;
+import com.amazon.aeeqa.locale.checkout.CheckoutPageLocale;
+import com.amazon.aeeqa.locale.detail.DetailPageLocale;
+import com.amazon.aeeqa.locale.search.SearchResultsPageLocale;
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.common.AISJumpinArcThreshold;
+import com.amazon.aeeqa.ui.common.Country;
+import com.amazon.aeeqa.ui.dataprovider.AISDataProvider;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestASIN;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.*;
+import com.amazon.aeeqa.ui.pagemodels.cart.CartPage;
+import com.amazon.aeeqa.ui.pagemodels.checkout.CheckoutPage;
+import com.amazon.aeeqa.ui.pagemodels.checkout.SospPage;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+import com.amazon.aeeqa.ui.pagemodels.help.HelpPage;
+import com.amazon.aeeqa.ui.pagemodels.home.HomePage;
+import com.amazon.aeeqa.ui.pagemodels.search.SearchResultsPage;
+
+import lombok.extern.slf4j.Slf4j;
+import lombok.val;
+import sable.internal.org.apache.commons.lang.StringUtils;
+
+import org.openqa.selenium.WebDriver;
+import org.testng.Assert;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+
+import java.lang.reflect.Method;
+import java.text.DecimalFormat;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Test cases to verify Jumpin Globalization Tests in Amazon International Shopping mode in non US MPs across Search, DP, Cart, Checkout
+ *
+ * @author shrumand
+ */
+@Slf4j
+public class JumpinGlobalizationTest extends AISBaseUITest {
+    public String freeShippingExportableCountryName;
+    public final static String freeDeliveryText = DetailPageLocale.CORECX_DELIVERY_PRICE_FREE.getI18NContent() + " " + DetailPageLocale.CORECX_DELIVERY_TYPE_DELIVERY.getI18NContent();
+    public final static String SHIPPING_LABEL_IN_ORDER_SUMMARY = CheckoutPageLocale.ACP_SUBTOTALS_SHIPPING.getI18NContent();
+    public final static String PROMOTION_LABEL_IN_ORDER_SUMMARY = CheckoutPageLocale.ACP_SUBTOTALS_PROMOTION_DEFAULT.getI18NContent();
+    public final static String FREE_SHIPPING_PROMO_LABEL_IN_SHIP_OPTION = CheckoutPageLocale.PRIME_FREE_35611.getI18NContent() + " " + CheckoutPageLocale.AG_STD_INTL_SO_DESC_21435.getI18NContent();
+
+    @BeforeMethod(alwaysRun = true)
+    public void jumpinGlobalizationInit(Method testMethodName) {
+        //Ineligible and non jumpin cases must not initialize freeShippingExportableCountry and FS threshold
+        if (!testMethodName.getName().contains("Ineligible") || !testMethodName.getName().contains("NonJumpin")) {
+            freeShippingExportableCountry = Country.valueOf(userProvidedExportCountryCode);
+            String jumpinArcToTest = sourceCountryCode + "_" + freeShippingExportableCountry;
+            AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC = AISJumpinArcThreshold.valueOf(jumpinArcToTest).getAISJumpinArcThresholdValue();
+            freeShippingExportableCountryName = lmsHelper.getTextForStringId("efs_region_" + userProvidedExportCountryCode.toLowerCase());
+        }
+    }
+
+    @AfterMethod(alwaysRun = true)
+    public void afterCartAndCheckout(Method testMethodName) {
+        if (testMethodName.getName().toLowerCase().contains("cart") || testMethodName.getName().toLowerCase().contains("checkout"))
+            // Run only once and ignore any exception if happened
+            runOnceAndIgnoreAllException("Jumpin#SFLCart", () -> {
+                CartPage cartPage = new CartPage(driver);
+                BrowserDriverHelper.goToUrl(driver, String.format("%s%s", url, "/gp/cart/view.html"));
+                cartPage.moveItemstoSaveForLaterInActiveCart();
+                return true;
+            });
+    }
+
+    @Test(description = "C241509, "
+            + "[Recognized/Unrecognized]:Shipping Destination is any Jumpin Location:Verify in Search Results for item below threshold message \"FREE Shipping to XX when you spend over $XX on eligible items\"",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_BELOW_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testJumpinFreeShippingMessageBelowThresholdInSearchResultsPage(final TestDTO testDTO) throws Exception {
+        final HomePage homePage = new HomePage(driver);
+        LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountryName, url);
+        driver.navigate().refresh();
+        String asinValue = testDTO.getTestASIN().getAsin();
+        homePage.search(asinValue);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        final String freeShippingMessageInSearchResults = searchResults.getShippingBenefitMessage(SearchResultsPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent());
+        DecimalFormat decimalFormat = new DecimalFormat("0.00");
+        final String expectedThresholdPriceWithCurrencySymbol = currencySymbol + " " + decimalFormat.format(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC);
+        final String expectedEligibleForFreeShippingStringInSearch = SearchResultsPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent() + " " +
+                SearchResultsPageLocale.JUMPIN_MSG_UNDER_FREE_SHIPPING_THRESHOLD.getI18NContentWithCustomText(freeShippingExportableCountry.getCountryDisplayName()) + " " +
+                SearchResultsPageLocale.JUMPIN_MSG_FREE_IFD_THRESHOLD_UNDER_FREE_SHIPPING_THRESHOLD_VALUE_NON_COP.getI18NContentWithCustomText(expectedThresholdPriceWithCurrencySymbol);
+        Assert.assertTrue(freeShippingMessageInSearchResults.contains(expectedEligibleForFreeShippingStringInSearch),
+                String.format("Eligible for Free shipping message for Jumpin Below Threshold ASIN in search results page: [%s] Observed Message: [%s]", expectedEligibleForFreeShippingStringInSearch, freeShippingMessageInSearchResults));
+    }
+
+    @Test(description = "C241526, "
+            + "[Recognized/Unrecognized]:Shipping Destination is any Jumpin Location:Verify in Search Results for item above threshold message \"Free Shipping to Country X\" below item price",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_ABOVE_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testJumpinFreeShippingMessageAboveThresholdInSearchResultsPage(final TestDTO testDTO) throws Exception {
+        final HomePage homePage = new HomePage(driver);
+        LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountryName, url);
+        String asinValue = testDTO.getTestASIN().getAsin();
+        driver.navigate().refresh();
+        homePage.search(asinValue);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        final String freeShippingMessageInSearchResults = searchResults.getShippingBenefitMessage(SearchResultsPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent());
+        final String expectedEligibleForFreeShippingStringInSearch = SearchResultsPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent() + " " +
+        SearchResultsPageLocale.JUMPIN_MSG_FREE_IFD_THRESHOLD_OVER_FREE_SHIPPING_THRESHOLD_SX.getI18NContentWithCustomText(exportableCountry.getCountryDisplayName());
+        Assert.assertTrue(freeShippingMessageInSearchResults.contains(expectedEligibleForFreeShippingStringInSearch),
+                String.format("Free Shipping Message for above threshold item in search results page: [%s] Observed Message: [%s]", expectedEligibleForFreeShippingStringInSearch, freeShippingMessageInSearchResults));
+    }
+
+    @Test(description = "C244630, "
+            + "[Recognized/UnRecognized]: Verify behaviour of Search Page for a non Jumpin Destination",
+            groups = {PriorityGroups.P0},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testFreeShippingMessageAbsentForNonJumpinInSearchResultsPage(final TestDTO testDTO) throws Exception {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, Country.valueOf(userProvidedExportCountryCode).getCountryDisplayName(), url);
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        String asinValue = testDTO.getTestASIN().getAsin();
+        homePage.search(asinValue);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        Assert.assertFalse(searchResults.isFreeShippingMessagePresent(), "Free Shipping Message is displayed for Non Jumpin countries");
+    }
+
+    @Test(description = "C241547, "
+            + "Verify for items that are ineligible for Free Shipping, customers should see standard AIS messaging, “Shipping to XX country”.",
+            groups = {PriorityGroups.P0},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testStandardShippingMessageForJumpinIneligibleInSearchResultsPage(final TestDTO testDTO) throws Exception {
+        final HomePage homePage = new HomePage(driver);
+        LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountryName, url);
+        driver.navigate().refresh();
+        String asinValue = testDTO.getTestASIN().getAsin();
+        homePage.search(asinValue);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        Assert.assertEquals(searchResults.getDepartmentCountryEligibleText(),
+                String.format("Ships to %s", freeShippingExportableCountryName),
+                "The country eligible text is not shown correctly in Search Results page.");
+    }
+
+    @Test(description = "C241510, "
+            + "[Recognized/Unrecognized]:Verify threshold value should be COP aware in Free Shipping message for items below threshold item-Shipping to any Jumpin Location",
+            groups = {PriorityGroups.P1,FeatureGroups.GROUP_JUMPIN_BELOW_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testEligibleForFSMessageBelowThresholdCOPAwareInSearch(final TestDTO testDTO) throws Exception {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountryName, url);
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, freeShippingExportableCountryName);
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        String asinValue = testDTO.getTestASIN().getAsin();
+        homePage.search(asinValue);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        DecimalFormat decimalFormat = new DecimalFormat("0.00");
+        final String expectedThresholdPriceWithDefaultCurrencySymbol = currencySymbol + " " + decimalFormat.format(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC);
+        final String freeShippingMessageInSearch = searchResults.getShippingBenefitMessage(SearchResultsPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent());
+        final String expectedFreeShippingText = SearchResultsPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent();
+        final String expectedFreeShippingMessageInSearch = String.format("%s %s %s", expectedFreeShippingText,
+                SearchResultsPageLocale.JUMPIN_MSG_UNDER_FREE_SHIPPING_THRESHOLD.getI18NContentWithCustomText(freeShippingExportableCountry.getCountryDisplayName()),
+                SearchResultsPageLocale.JUMPIN_MSG_FREE_IFD_THRESHOLD_UNDER_FREE_SHIPPING_THRESHOLD_VALUE_COP
+                              .getI18NContentWithMultipleValues(Arrays.asList(expectedThresholdPriceWithDefaultCurrencySymbol, ".*?")));
+        try {
+            SoftAssert softAssert = new SoftAssert();
+            //It verifies the static contents of EFS message
+            softAssert.assertTrue(StringHelper.doesPatternMatch(freeShippingMessageInSearch, expectedFreeShippingMessageInSearch),
+                    String.format("EFS message for below threshold in Search: [%s] But observed text in search: [%s]", expectedFreeShippingMessageInSearch, freeShippingMessageInSearch));
+            softAssert.assertTrue(freeShippingMessageInSearch.contains(selectedCurrency),
+                    "EFS message for below threshold in Search with COP before the price value of selected currency is not displayed properly");
+            softAssert.assertAll();
+        } finally {
+            //Resetting the currency back to default currency for other test using this account.
+            BrowserDriverHelper.goToUrl(driver, url);
+            CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+            CurrencySelectionHelper.selectCurrencyByNameToShopWith(driver, "Default");
+        }
+    }
+
+    @Test(description = "C265988, "
+            + "[Non Default COP-Main price Section]:Verify Free shipping Upsell message should display for Below threshold product for XX Jumpin Location",
+            groups = {PriorityGroups.P0,FeatureGroups.GROUP_JUMPIN_BELOW_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testEligibleForFSMessageBelowThresholdCOPAwareNextToPriceAndBuyboxInDP(final TestDTO testDTO) throws Exception {
+        workflowToDetailPage(testDTO, driver, freeShippingExportableCountryName);
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        final String freeShippingMessageInMainPriceSection = detailPage.getDetailPageAboveTheFold().getFreeShippingMessageInMainPriceSectionInNonUSMP().trim();
+        final String freeShippingMessageOnBuybox = detailPage.getDetailPageAboveTheFold().getFreeShippingMessageOnBuyboxInNonUSMP().trim();
+        String[] expectedFreeShippingMessageInDetailPage = lmsHelper.getTextForStringId("efs_upsell_detail_page_price_block").split("\\$\\{hash-get threshold\\}");
+        //splitting up the FreeShipping message, Example: "& FREE Shipping to Oman when you spend over CAD 68.65 on eligible items" in Detail page since we cannot determine the COP real time threshold value.
+        //Example of split up string: Part 1 is up to the selected currency (Ex. CAD) "& FREE Shipping to Oman when you spend over CAD" and Part 2 is "on eligible items"
+        log.info("ExpectedFreeShippingMessageInDetailPage: " +expectedFreeShippingMessageInDetailPage[0].replaceAll("\\<.*?\\>", "").replaceAll("\\$\\{hash-get destination\\}", freeShippingExportableCountryName) + selectedCurrency + expectedFreeShippingMessageInDetailPage[1]);
+        try {
+            SoftAssert softAssert = new SoftAssert();
+            softAssert.assertTrue(freeShippingMessageInMainPriceSection.contains((expectedFreeShippingMessageInDetailPage[0].replaceAll("\\<.*?\\>", "").replaceAll("\\$\\{hash-get destination\\}", freeShippingExportableCountryName) + selectedCurrency)), "EFS message for below threshold in main price section with COP before the price value of selected currency is not displayed properly in Detail page");
+            softAssert.assertTrue(freeShippingMessageInMainPriceSection.contains(expectedFreeShippingMessageInDetailPage[1]), "EFS message for below threshold in main price section after the price value of selected currency is not displayed properly in detail page.");
+            softAssert.assertTrue(freeShippingMessageOnBuybox.contains((expectedFreeShippingMessageInDetailPage[0].replaceAll("\\<.*?\\>", "").replaceAll("\\$\\{hash-get destination\\}", freeShippingExportableCountryName) + selectedCurrency)), "EFS message for below threshold in buybox with COP before the price value of selected currency is not displayed properly in Detail page");
+            softAssert.assertTrue(freeShippingMessageOnBuybox.contains(expectedFreeShippingMessageInDetailPage[1]), "EFS message for below threshold in buybox after the price value of selected currency is not displayed properly in detail page.");
+            softAssert.assertAll();
+        } finally {
+            //Resetting the currency back to default currency for other test using this account.
+            BrowserDriverHelper.goToUrl(driver, url);
+            CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+            CurrencySelectionHelper.selectCurrencyByNameToShopWith(driver, "Default");
+        }
+
+     }
+
+       @Test(description = "C266379, "
+                + "[Recognized/Unrecognized]:Verify threshold value should be COP aware in Free Shipping message for items that are below threshold amount (similar to Search)-Shipping to XX Jumpin Location",
+                groups = {PriorityGroups.P1, FeatureGroups.GROUP_JUMPIN_BELOW_THRESHOLD},
+                dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+                dataProviderClass = AISDataProvider.class)
+        public void testEligibleForFSMessageCOPAwareBelowThresholdInCart(final TestDTO testDTO) throws Exception {
+            workflowToCartPage(testDTO, driver, freeShippingExportableCountryName);
+            CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+            String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+            final CartPage cartPage =  new CartPage(driver);
+            final String eligibleForFreeShippingText = lmsHelper.getTextForStringId("jumpin_msg_free_shipping");
+            String expectedThresholdPriceWithDefaultCurrencySymbol = currencySymbol + " " + AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC.intValue();
+            //splitting up the FreeShipping message Example: "FREE Shipping to Oman when you spend over AED 199 on eligible items" in cart page since we cannot determine the COP real time threshold value.
+            // Example of split up string: Part 1 is up to the selected currency (Ex. AED) "FREE Shipping to Oman when you spend over AED 199" and Part 2 is "on eligible items"
+            final String expectedFreeShippingMessageInCartPart1 =  lmsHelper.getTextForStringId("jumpin_msg_free_shipping").replaceAll("\\<.*?\\>","") +
+                    lmsHelper.getTextForStringId("jumpin_msg_under_free_ship_threshold").replaceAll("\\$\\{countryName\\}", freeShippingExportableCountryName) + expectedThresholdPriceWithDefaultCurrencySymbol + String.format(" (%s",selectedCurrency);
+            final String expectedFreeShippingMessageInCartPart2  = lmsHelper.getTextForStringId("jumpin_msg_free_ifd_threshold_under_free_ship_threshold_value_cop").replaceAll("\\$\\{freeShipThreshold\\} \\(\\$\\{freeShipThresholdCOP\\}\\)", "");
+            log.info("ExpectedFreeShippingMessageInCart: " +expectedFreeShippingMessageInCartPart1 + expectedFreeShippingMessageInCartPart2);
+            try {
+                SoftAssert softAssert = new SoftAssert();
+                softAssert.assertTrue(cartPage.getShippingBenefitTextInActiveCart(eligibleForFreeShippingText).trim().contains(expectedFreeShippingMessageInCartPart1),
+                    "EFS message for below threshold in Cart with COP before the price value of selected currency is not displayed properly");
+                softAssert.assertTrue(cartPage.getShippingBenefitTextInActiveCart(eligibleForFreeShippingText).trim().contains(expectedFreeShippingMessageInCartPart2),
+                    "EFS message for below threshold in Cart after the price value of selected currency is not displayed properly");
+                //splitting up the FreeShipping Upsell message Example: "Add EGP 868.08 of eligible items to your order for FREE Shipping." in cart page since we cannot determine the COP real time threshold value.
+                //Example of split up string: Part 1 is up to the selected currency (Ex. EGP) "Add EGP" and Part 2 is "of eligible items to your order for FREE Shipping."
+                String[] expectedFreeShippingUpsellMessageInCartGutter = lmsHelper.getTextForStringId("efs_upsell_cart_buy_box").split("\\$\\{hash-get gap\\}");
+                final String expectedFreeShippingUpsellMessageInCartGutterPart0 = expectedFreeShippingUpsellMessageInCartGutter[0] + selectedCurrency;
+                final String expectedFreeShippingUpsellMessageInCartGutterPart1 = expectedFreeShippingUpsellMessageInCartGutter[1].replaceAll("\\<.*?\\>","");
+                log.info("ExpectedFreeShippingUpsellMessageInCartGutter: " +expectedFreeShippingUpsellMessageInCartGutterPart0 + expectedFreeShippingUpsellMessageInCartGutterPart1);
+                cartPage.verifyMessageAndLinkInCartGutter(expectedFreeShippingUpsellMessageInCartGutterPart0, true);
+                cartPage.verifyMessageAndLinkInCartGutter(expectedFreeShippingUpsellMessageInCartGutterPart1, true);
+                cartPage.clickSaveForLater();
+                softAssert.assertTrue(cartPage.getShippingBenefitTextInSaveForLater(eligibleForFreeShippingText).trim().contains(expectedFreeShippingMessageInCartPart1),
+                    "EFS message for below threshold with COP before the price value of selected currency is not displayed properly in SFL Section");
+                softAssert.assertTrue(cartPage.getShippingBenefitTextInSaveForLater(eligibleForFreeShippingText).trim().contains(expectedFreeShippingMessageInCartPart2),
+                    "EFS message for below threshold after the price value of selected currency is not displayed properly in SFL Section");
+                softAssert.assertAll();
+            } finally {
+                //Resetting the currency back to default currency for other test using this account.
+                BrowserDriverHelper.goToUrl(driver, url);
+                CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+                CurrencySelectionHelper.selectCurrencyByNameToShopWith(driver, "Default");
+            }
+
+        }
+
+    @Test(description = "C242006, "
+            + "FS Upsell Message - Main Price Section",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_BELOW_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testEligibleForFreeShippingMessageNextToPriceInDP(final TestDTO testDTO) throws Exception {
+        workflowToDetailPage(testDTO, driver, freeShippingExportableCountryName);
+        final DetailPage detailPage = new DetailPage(driver);
+        final String freeShippingMessageInMainPriceSection = detailPage.getDetailPageAboveTheFold().getFreeShippingMessageInMainPriceSectionInNonUSMP().trim();
+        //Adding Decimal Format to handle case when Shipping Price is E.g. 79.10 where Double.valueOf rounding off to 79.1 and its failing in the Assertion
+        DecimalFormat decimalFormat = new DecimalFormat("0.00");
+        final String expectedThresholdPriceWithCurrencySymbol = currencySymbol + " " + decimalFormat.format(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC);
+        final String expectedEligibleForFreeShippingStringInDP = lmsHelper.getTextForStringId("efs_upsell_detail_page_price_block").replaceAll("\\<.*?\\>","")
+                .replaceAll("\\$\\{hash-get destination\\}", freeShippingExportableCountryName)
+                .replaceAll("\\$\\{hash-get threshold\\}", expectedThresholdPriceWithCurrencySymbol).trim();
+        log.info("Eligible For FreeShipping Text in DP: " + freeShippingMessageInMainPriceSection);
+        log.info("Expected Value: " + expectedEligibleForFreeShippingStringInDP);
+        Assert.assertTrue(freeShippingMessageInMainPriceSection.contains(expectedEligibleForFreeShippingStringInDP), "Eligible for Free Shipping Message was not shown correctly next to price under Detail page > price section.");
+    }
+
+    @Test(description = "C242006, "
+            + "FS Upsell Message - Buy Box",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_BELOW_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testEligibleForFreeShippingMessageOnBuyboxInDP(final TestDTO testDTO) throws Exception {
+        workflowToDetailPage(testDTO, driver, freeShippingExportableCountryName);
+        final DetailPage detailPage = new DetailPage(driver);
+        final String freeDeliveryMessageOnBuybox = detailPage.getDetailPageAboveTheFold().getUDMMessage().trim();
+        final String expectedThresholdPriceWithCurrencySymbol = currencySymbol + AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC.intValue();
+        SoftAssert softAssert = new SoftAssert();
+        final String expectedDestinationTextInDP = DetailPageLocale.CORECX_DELIVERY_DESTINATION.getI18NContentWithCustomText(freeShippingExportableCountry.getCountryDisplayName()) + " ";
+        final Map<String, String> itemAndThresholdValues = new HashMap<>();
+        itemAndThresholdValues.put("${item}", DetailPageLocale.CORECX_ELIGIBLE_ITEMS_SHORT_EFS.getI18NContent());
+      //The price amount is not in selectedCurrency because it is a dynamic value. Hence, the UDM message can be verified by utilising only the currency symbol.
+        itemAndThresholdValues.put("${threshold}", expectedThresholdPriceWithCurrencySymbol);
+        final String expectedFreeDeliveryConditionInDetailPage = expectedDestinationTextInDP + DetailPageLocale.CORECX_DELIVERY_CONDITION_SHORT_T2.getMultiVariableI18NContent(itemAndThresholdValues);
+        softAssert.assertTrue(freeDeliveryMessageOnBuybox.contains(freeDeliveryText),
+                String.format("Expected Free Delivery Message: [%s] Observed Message: [%s]", freeDeliveryText, freeDeliveryMessageOnBuybox));
+        softAssert.assertTrue(freeDeliveryMessageOnBuybox.contains(expectedFreeDeliveryConditionInDetailPage),
+                String.format("Expected Free Delivery Message: [%s] Observed Delivery condition message in Detail page: [%s]", expectedFreeDeliveryConditionInDetailPage, freeDeliveryMessageOnBuybox));
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C243531, "
+            + "Detail Page- FS Qualified Message - Main Price Section",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_ABOVE_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testFreeShippingMessageAboveThresholdNextToPriceInDP(final TestDTO testDTO) throws Exception {
+        workflowToDetailPage(testDTO, driver, freeShippingExportableCountryName);
+        final DetailPage detailPage = new DetailPage(driver);
+        final String freeShippingMessageInMainPriceSection = detailPage.getDetailPageAboveTheFold().getFreeShippingMessageInMainPriceSectionInNonUSMP().trim();
+        final String expectedFreeShippingStringInDP = lmsHelper.getTextForStringId("efs_free_shipping_detail_page_price_block").replaceAll("\\<.*?\\>","")
+                .replaceAll("\\$\\{hash-get destination\\}", freeShippingExportableCountryName).trim();
+        log.info("FreeShipping Message in DP: " + freeShippingMessageInMainPriceSection);
+        log.info("Expected Value: " + expectedFreeShippingStringInDP);
+        Assert.assertTrue(freeShippingMessageInMainPriceSection.contains(expectedFreeShippingStringInDP),"Free Shipping Message is not displaying for above threshold item");
+    }
+
+    @Test(description = "C242998, "
+            + "Detail Page- FS Qualified Message - Buybox",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_ABOVE_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testFreeShippingMessageAboveThresholdOnBuyboxInDP(final TestDTO testDTO) throws Exception {
+        workflowToDetailPage(testDTO, driver, freeShippingExportableCountryName);
+        final DetailPage detailPage = new DetailPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        final String observedFreeDeliveryTextInDP = detailPage.getBuyBoxDeliveryMessageText().trim();
+        final String expectedFreeDeliveryTextInDP = DetailPageLocale.CORECX_DELIVERY_PRICE_FREE.getI18NContent() + " " + DetailPageLocale.CORECX_DELIVERY_TYPE_DELIVERY.getI18NContent();
+        final String expectedDestinationTextInDP = DetailPageLocale.CORECX_DELIVERY_DESTINATION.getI18NContentWithCustomText(freeShippingExportableCountry.getCountryDisplayName());
+        softAssert.assertTrue(observedFreeDeliveryTextInDP.contains(expectedFreeDeliveryTextInDP),
+                String.format("Expected FREE delivery string: [%s] but observed string: [%s]", expectedFreeDeliveryTextInDP, observedFreeDeliveryTextInDP));
+        softAssert.assertTrue(observedFreeDeliveryTextInDP.contains(expectedDestinationTextInDP),
+                String.format("Expected destination name: [%s] was not shown correctly in observed Message in DP: [%s]", expectedDestinationTextInDP, observedFreeDeliveryTextInDP));
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C242007, "
+            + "[Recognized/Recognized]: Verify the Delivery message and Eligibility message for below thershold item for XX Jumpin Location",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_BELOW_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testEligiblityAndDeliveryMessageForBelowThresholdInDP(final TestDTO testDTO) throws Exception {
+        workflowToDetailPage(testDTO, driver, freeShippingExportableCountryName);
+        final DetailPage detailPage = new DetailPage(driver);
+        final String deliveryAndEligibilityMessageInDP = detailPage.getFastTrackPromiseMessage();
+        final String expectedDeliveryAndEligibilityMessage = lmsHelper.getTextForStringId("efs_free_shipping_detail_page_delivery_message_arrives_promise_range").replaceAll("\\<.*?\\>","").replaceAll("\\$\\{hash-get destination\\}", freeShippingExportableCountryName).replaceAll("\\$\\{hash-get deliveryDateRange\\}", "").trim();
+        log.info("Eligiblity And Arrives Message Text in DP: " + deliveryAndEligibilityMessageInDP );
+        log.info("Expected Value: " + expectedDeliveryAndEligibilityMessage);
+        Assert.assertTrue(deliveryAndEligibilityMessageInDP.contains(expectedDeliveryAndEligibilityMessage), "Eligiblity and Delivery message for below threshold product was not shown correctly in Detail page.");
+    }
+
+    @Test(description = "C243532, "
+            + "[Recognized/Recognized]: Verify the Delivery message and Eligibility message for above thershold item for XX Jumpin Location",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_ABOVE_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testEligiblityAndDeliveryMessageForAboveThresholdInDP(final TestDTO testDTO) throws Exception {
+        workflowToDetailPage(testDTO, driver, freeShippingExportableCountryName);
+        final DetailPage detailPage = new DetailPage(driver);
+        final String deliveryAndEligibilityMessageInDP = detailPage.getFastTrackPromiseMessage();
+        final String expectedDeliveryAndEligibilityMessage = lmsHelper.getTextForStringId("efs_free_shipping_detail_page_delivery_message_arrives_promise_range").replaceAll("\\<.*?\\>","").replaceAll("\\$\\{hash-get destination\\}", freeShippingExportableCountryName).replaceAll("\\$\\{hash-get deliveryDateRange\\}", "").trim();
+        log.info("Eligiblity And Arrives Message Text in DP: " + deliveryAndEligibilityMessageInDP );
+        log.info("Expected Value: " + expectedDeliveryAndEligibilityMessage);
+        Assert.assertTrue(deliveryAndEligibilityMessageInDP.contains(expectedDeliveryAndEligibilityMessage), "Eligiblity and Delivery message above threshold product was not shown correctly in Detail page.");
+    }
+
+    @Test(description = "C241561, "
+            + "[Recognized/Unrecognized]:Verify Customers should see ”FREE Shipping to XX Jumpin Location” next to products that are above or equal to threshold amount (similar to Search)-Shipping to any Jumpin Location",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_ABOVE_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testFreeShippingMessageAboveThresholdInCart(final TestDTO testDTO) throws Exception {
+        final CartPage cartPage =  new CartPage(driver);
+        final String eligibleForFreeShippingText = CartPageLocale.CORECX_DELIVERY_PRICE_FREE.getI18NContent() + " " + CartPageLocale.CORECX_DELIVERY_TYPE_CAPITAL_DELIVERY.getI18NContent();
+        workflowToCartPage(testDTO, driver, freeShippingExportableCountryName);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(cartPage.isEligibleForFreeShippingTextInActiveCart(eligibleForFreeShippingText), "Eligible for Free shipping message is not displaying for Jumpin Above Threshold ASIN in Carts");
+        String expectedEligibleForFreeShippingString = CartPageLocale.EFS_FREE_SHIPPING_CART_INFO_BLOCK_DELIVERY_PROGRAM_SUBTITLE.getI18NContentWithCustomText(freeShippingExportableCountryName);
+        softAssert.assertTrue(cartPage.getShippingBenefitTextInActiveCart(eligibleForFreeShippingText).trim().contains(expectedEligibleForFreeShippingString),
+                "Eligible for Free shipping message is not displaying for Jumpin Above Threshold ASIN in Carts");
+        String expectedFreeShippingMessageInCartGutter = CartPageLocale.EFS_FREE_SHIPPING_CART_BUY_BOX.getI18NContent();
+        cartPage.verifyMessageAndLinkInCartGutter(expectedFreeShippingMessageInCartGutter, true);
+        cartPage.clickSaveForLater();
+        softAssert.assertTrue(cartPage.getShippingBenefitTextInSaveForLater(eligibleForFreeShippingText).trim().contains(expectedEligibleForFreeShippingString),
+                "Eligible for Free shipping message is not displaying for Jumpin Above Threshold ASIN in SFL Section");
+    }
+
+    @Test(description = "C241556, "
+            + "[Recognized/Unrecognized]:Verify Customers should see ” FREE Shipping to XX when you spend over $XX on eligible items ” next to products that are below threshold amount (similar to Search)-Shipping to XX Jumpin Location",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_BELOW_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testEligibleForFreeShippingMessageBelowThresholdInCart(final TestDTO testDTO) throws Exception {
+        DecimalFormat decimalFormat = new DecimalFormat("0.00");
+        workflowToCartPage(testDTO, driver, freeShippingExportableCountryName);
+        final CartPage cartPage =  new CartPage(driver);
+        String expectedThresholdPriceWithCurrencySymbol = currencySymbol + " " + decimalFormat.format(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC);
+        String eligibleForFreeShippingText = CartPageLocale.EFS_UPSELL_CART_INFO_BLOCK_DELIVERY_PROGRAM_SUBTITLE.getI18NContentWithMultipleValues(Arrays.asList(freeShippingExportableCountry.getCountryDisplayName(), expectedThresholdPriceWithCurrencySymbol));
+        //Splitting up the FreeShipping message to replace "FREE Shipping" text with FREE Delivery. As in cart page alone, the UI shows 'delivery' texts.
+        String[] splittingEligibleForFreeDeliveryText = eligibleForFreeShippingText.split(freeShippingExportableCountryName);
+        String expectedEligibleForFreeShippingString = freeDeliveryText + " " + SearchResultsPageLocale.JUMPIN_MSG_FREE_IFD_THRESHOLD_OVER_FREE_SHIPPING_THRESHOLD_SX.getI18NContentWithCustomText(exportableCountry.getCountryDisplayName()) + splittingEligibleForFreeDeliveryText[1];
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(cartPage.getShippingBenefitTextInActiveCart(freeDeliveryText).contains(expectedEligibleForFreeShippingString),
+                String.format("Eligible for Free shipping message for Jumpin Below Threshold ASIN in Carts: [%s] Observed Message: [%s]", expectedEligibleForFreeShippingString, cartPage.getShippingBenefitTextInActiveCart(freeDeliveryText)));
+        String[] expectedFreeShippingUpsellMessageInCartGutter = CartPageLocale.EFS_UPSELL_CART_BUY_BOX.getI18NContentAndSplitByPlaceholder();
+        for(String staticText : expectedFreeShippingUpsellMessageInCartGutter){
+            cartPage.verifyMessageAndLinkInCartGutter(staticText.trim(), true);
+        }
+        cartPage.clickSaveForLater();
+        softAssert.assertTrue(cartPage.getShippingBenefitTextInSaveForLater(freeDeliveryText).contains(expectedEligibleForFreeShippingString),
+                String.format("Eligible for Free shipping message for Jumpin Below Threshold ASIN in SFL Section: [%s] Observed Message: [%s]", expectedEligibleForFreeShippingString, cartPage.getShippingBenefitTextInSaveForLater(freeDeliveryText)));
+    }
+
+    @Test(description = "C241572, "
+            + "Verify SOSP and Review Order Page when a customer checkout item above or equal to threshold value shipping to XX Jumpin Location",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_ABOVE_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testFreeShippingMessageAboveThresholdInCheckout(final TestDTO testDTO) throws Exception {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, freeShippingExportableCountryName, false, false);
+        CheckoutPage checkoutPage = AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+        String shippingPrice = fetchPriceFromSPCOrderSummary(checkoutPage, SHIPPING_LABEL_IN_ORDER_SUMMARY);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(checkoutPage.isShippingBenefitPromotionPresent(PROMOTION_LABEL_IN_ORDER_SUMMARY), "Free Shpping Message is not displaying for above threshold ASIN checkout for Jumpin Countries");
+        softAssert.assertFalse(checkoutPage.isQualifyForFreeShippingLinkPresent(), "Qualify for Free Shipping link is displaying for above threshold Asin Checkout for Jumpin Countries");
+        softAssert.assertTrue(checkoutPage.getOrderSummaryContentPriceByCell(PROMOTION_LABEL_IN_ORDER_SUMMARY).contains(shippingPrice), "Free shipping promo discounted price is not equal to the actual shipping price");
+        softAssert.assertTrue(checkoutPage.getOrderSummaryContentPriceByCell(PROMOTION_LABEL_IN_ORDER_SUMMARY).contains(String.format("-%s", currencySymbol)), "Minus symbol is not present in promotion price of Above threshold SPC page");
+        softAssert.assertTrue(checkoutPage.getSelectedShipOptionDescriptionInOrderSummary(0).contains(FREE_SHIPPING_PROMO_LABEL_IN_SHIP_OPTION), "Free Shipping option description is not displayed in ship option in SPC Page of Above threshold Item");
+        softAssert.assertTrue(checkoutPage.verifyFreeShippingPromoTextPresentUnderOrderSummary(CheckoutPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent()), "Free shipping promo text for an above threshold item under order sumamry box is mismatch");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C241573, "
+            + "Verify the behavior when a customer changes address between Jumpin and Non-Jumpin Destination , FS ship option is recalculated to determine if country/cart meets FS eligibility",
+            groups = {PriorityGroups.P1, FeatureGroups.GROUP_JUMPIN_ABOVE_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testChangeToFSDestinationAboveThresholdInCheckout(final TestDTO testDTO) {
+        //Temp implementation to override with Kuwait for AE MP testing
+        Country randomExportableCountry = Country.valueOf("KW");
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, randomExportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+        final String JUMPIN_ADDRESS_NAME = String.format("%s", freeShippingExportableCountryName);
+        checkoutPage.clickChangeShippingAddressLink();
+        checkoutPage.changeShippingAddressByAddressName(JUMPIN_ADDRESS_NAME);
+        final SospPage sospPage = new SospPage(driver);
+        sospPage.continueToPayment();
+        //For KYC Related Countries, KYC is displayed after clicking Continue from the SOSP Page
+        checkoutPage.getKYCWidgetPage().clickOnSkipKYCPageIfPresentAndContinue();
+        Assert.assertTrue(checkoutPage.isShippingBenefitPromotionPresent(CheckoutPageLocale.ACP_SUBTOTALS_PROMOTION_DEFAULT.getI18NContent()), "Free Shipping Message is not displaying for above threshold ASIN checkout for Jumpin Countries");
+    }
+
+    @Test(description = "C241569, "
+            + "Verify SOSP and Review Order Page when a customer checkout item below threshold value shipping to XX Jumpin Location",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_BELOW_THRESHOLD},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testEligibleForFreeShippingBelowThresholdInCheckout(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, freeShippingExportableCountryName, false, false);
+        CheckoutPage checkoutPage = AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertFalse(checkoutPage.isShippingBenefitPromotionPresent(CheckoutPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent()), "Free Shipping Message is displaying for below threshold ASIN checkout for Jumpin Countries");
+        softAssert.assertTrue(checkoutPage.isQualifyForFreeShippingLinkPresent(), "Qualify for Free Shipping link is not displaying for below threshold Asin Checkout for Jumpin Countries");
+        softAssert.assertFalse(checkoutPage.verifyPromotionLabelPresentInOrderSummary(),"Promotion Applied Label is present in order summary for below threshold Checkout");
+        softAssert.assertFalse(checkoutPage.getSelectedShipOptionDescriptionInOrderSummary(0).contains(FREE_SHIPPING_PROMO_LABEL_IN_SHIP_OPTION), "Free Shipping string is displayed in ship option in SPC Page for a below threshold Item.");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C241567, "
+            + "Verify in checkout for Mixed cart Below FST item and Ineligible FS item",
+            groups = {PriorityGroups.P1, FeatureGroups.GROUP_JUMPIN_BELOW_THRESHOLD},
+             dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+             dataProviderClass = AISDataProvider.class)
+    public void testBelowThresholdMixedCartInCheckout(final TestDTO testDTO, String testAsin2) {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountryName, url);
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+        //Currently asins fetched via csv file where always the first asin holds jumpin Eligible ASIN and the second asin holds jumpin ineligible asin
+        TestASIN jumpinEligibleASIN = testDTO.getTestASIN();
+        TestASIN jumpinIneligibleASIN = TestASIN.builder().asin(testAsin2).build();
+        TestASIN[] testAsins = new TestASIN[] {jumpinEligibleASIN, jumpinIneligibleASIN};
+        for (int i = 0; i < testAsins.length; i++) {
+        DetailPageHelper.goToDetailPage(driver, testAsins[i], url);
+        final DetailPage detailPage = new DetailPage(driver);
+        String offerListingValue = detailPage.getOfferListingValue();
+        CartHelper.addItemsToCart(driver, testAsins[i].getAsin(), offerListingValue);
+        }
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.CART_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, freeShippingExportableCountryName, false, false);
+        CheckoutPage checkoutPage = AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertFalse(checkoutPage.isShippingBenefitPromotionPresent(CheckoutPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent()), "Free Shipping Message is displaying for below threshold ASIN checkout for Jumpin Countries");
+        softAssert.assertTrue(checkoutPage.isQualifyForFreeShippingLinkPresent(), "Qualify for Free Shipping link is not displaying for below threshold Asin Checkout for Jumpin Countries");
+        softAssert.assertFalse(checkoutPage.getSelectedShipOptionDescriptionInOrderSummary(0).contains(FREE_SHIPPING_PROMO_LABEL_IN_SHIP_OPTION), "Free Shipping string is displayed in ship option in SPC Page for a below threshold Item.");
+        softAssert.assertFalse(checkoutPage.verifyPromotionLabelPresentInOrderSummary(), "Promotion Applied Label is present in order summary for below threshold Checkout");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C241575, "
+            + "Verify checkout for Mixed cart Above FST item and Ineligible FS item",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_ABOVE_THRESHOLD},
+             dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+             dataProviderClass = AISDataProvider.class)
+    public void testAboveThresholdMixedCartInCheckout(final TestDTO testDTO, String testAsin2) throws Exception {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountryName, url);
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, freeShippingExportableCountryName);
+        //Currently asins fetched via csv file where always the first asin holds jumpin Eligible ASIN and the second asin holds jumpin ineligible asin
+        TestASIN jumpinEligibleASIN = testDTO.getTestASIN();
+        TestASIN jumpinIneligibleASIN = TestASIN.builder().asin(testAsin2).build();
+        TestASIN[] testAsins = new TestASIN[] {jumpinEligibleASIN, jumpinIneligibleASIN};
+        for (int i = 0; i < testAsins.length; i++) {
+        DetailPageHelper.goToDetailPage(driver, testAsins[i], url);
+        final DetailPage detailPage = new DetailPage(driver);
+        String offerListingValue = detailPage.getOfferListingValue();
+        CartHelper.addItemsToCart(driver, testAsins[i].getAsin(), offerListingValue);
+        }
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.CART_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, freeShippingExportableCountryName, false, false);
+        CheckoutPage checkoutPage = AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+        SoftAssert softAssert = new SoftAssert();
+        String shippingPrice = fetchPriceFromSPCOrderSummary(checkoutPage, SHIPPING_LABEL_IN_ORDER_SUMMARY);
+        String promotionPrice = fetchPriceFromSPCOrderSummary(checkoutPage, PROMOTION_LABEL_IN_ORDER_SUMMARY);
+        int exactShipPrice = (int)(Double.parseDouble(shippingPrice));
+        int exactPromoPrice = (int)(Double.parseDouble(promotionPrice));
+        softAssert.assertTrue((checkoutPage.getSelectedShipOptionDescriptionByASIN(jumpinEligibleASIN.getAsin()).contains(FREE_SHIPPING_PROMO_LABEL_IN_SHIP_OPTION)), "Free Shipping ship option string is not displayed for jumpin eligible asin in SPC page");
+        softAssert.assertTrue((checkoutPage.getSelectedShipOptionDescriptionByASIN(jumpinIneligibleASIN.getAsin()).contains(CheckoutPageLocale.AG_STD_INTL_SO_DESC_21435.getI18NContent())), "Shipping string description is not displayed for jumpin Ineligible Asin in SPC page");
+        softAssert.assertFalse((checkoutPage.getSelectedShipOptionDescriptionByASIN(jumpinIneligibleASIN.getAsin()).contains(FREE_SHIPPING_PROMO_LABEL_IN_SHIP_OPTION)), "Free Shipping option string is displayed in shipping speed description of Jumpin ineligible asin");
+        softAssert.assertTrue(checkoutPage.getOrderSummaryContentPriceByCell(PROMOTION_LABEL_IN_ORDER_SUMMARY).contains(String.format("-%s", currencySymbol)), "Minus symbol is not present in the promotion label in order summary");
+        //Promotion price should be less than the shipping price, since ineligible item is present in checkout.
+        softAssert.assertTrue(exactShipPrice > exactPromoPrice, "Shipping Price is lesser than or equal to the promotion Price. Maybe shipping Price was not calculated for ineligible item.");
+        softAssert.assertTrue(checkoutPage.verifyFreeShippingPromoTextPresentUnderOrderSummary(CheckoutPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent()), "Free shipping promo text for an above threshold item under under order sumamry box is mismatch");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C241565, "
+            + "[Recognized/Unrecognized]:Verify Mixed Cart behavior for item above FST and Ineligible item Shipping to XX Jumpin Location",
+             groups = {PriorityGroups.P1, FeatureGroups.GROUP_JUMPIN_ABOVE_THRESHOLD},
+             dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+             dataProviderClass = AISDataProvider.class)
+    public void testAboveThresholdMixedCartInCartPage(final TestDTO testDTO, String testAsin2) {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountryName, url);
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, freeShippingExportableCountryName);
+        //Currently asins fetched via csv file where always the first asin holds jumpin Eligible ASIN and the second asin holds jumpin ineligible asin
+        TestASIN jumpinEligibleASIN = testDTO.getTestASIN();
+        TestASIN jumpinIneligibleASIN = TestASIN.builder().asin(testAsin2).build();
+        TestASIN[] testAsins = new TestASIN[] {jumpinEligibleASIN, jumpinIneligibleASIN};
+        for (int i = 0; i < testAsins.length; i++) {
+        DetailPageHelper.goToDetailPage(driver, testAsins[i], url);
+        final DetailPage detailPage = new DetailPage(driver);
+        String offerListingValue = detailPage.getOfferListingValue();
+        CartHelper.addItemsToCart(driver, testAsins[i].getAsin(), offerListingValue);
+        }
+        final CartPage cartPage = new CartPage(driver);
+        final HelpPage helpPage = new HelpPage(driver);
+        CartHelper.goToCartPage(driver,url);
+        SoftAssert softAssert = new SoftAssert();
+        final String expectedEligibleForFreeShippingStringInCart = CartPageLocale.EFS_FREE_SHIPPING_CART_INFO_BLOCK_DELIVERY_PROGRAM_SUBTITLE.getI18NContentWithCustomText(freeShippingExportableCountryName);
+        String ineligibilityMessageInCart = CartPageLocale.EFS_PAID_SHIPPING_CART_INFO_BlOCK_DELIVERY_PROGRAM_SUBTITLE.getI18NContent();
+        softAssert.assertTrue(cartPage.getShippingMessageTextInCartByASIN(jumpinEligibleASIN.getAsin(),expectedEligibleForFreeShippingStringInCart).trim().contains(expectedEligibleForFreeShippingStringInCart), "Eligible for Free shipping message is not displaying properly for Jumpin Above Threshold ASIN in Cart");
+        softAssert.assertTrue(cartPage.getShippingMessageTextInCartByASIN(jumpinIneligibleASIN.getAsin(),ineligibilityMessageInCart).contains(ineligibilityMessageInCart), "Ineligibility message is not displaying properly in Cart");
+        String expectedPartialFreeShippingMessageInCartGutter = CartPageLocale.EFS_PARTIAL_FREE_SHIPPING_CART_BUYBOX_HUC_DEFAULT.getI18NContent();
+        cartPage.verifyMessageAndLinkInCartGutter(expectedPartialFreeShippingMessageInCartGutter, true);
+        cartPage.clickSeeDetailsLinkInCartGutter();
+        BrowserDriverHelper.switchToNewTabWithNewTabOpened(driver);
+        softAssert.assertTrue((helpPage.isHelpPageContentPresent() && driver.getCurrentUrl().contains("GUH83UTMXSACERW3")), "Free shipping help content is not displayed in Details link page");
+        String title = driver.getTitle();
+        softAssert.assertFalse(StringUtils.isBlank(title)|| title.contains("404"), "Blank page or 404 page appears in free shipping details Link");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C241560, "
+            + "[Recognized/Unrecognized]:Verify Mixed Cart behavior for item below FST and Ineligible item Shipping to XX Jumpin Location",
+             groups = {PriorityGroups.P1, FeatureGroups.GROUP_JUMPIN_BELOW_THRESHOLD},
+             dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+             dataProviderClass = AISDataProvider.class)
+    public void testBelowThresholdMixedCartInCartPage(final TestDTO testDTO, String testAsin2) {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountryName, url);
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, freeShippingExportableCountryName);
+      //Currently asins fetched via csv file where always the first asin holds jumpin Eligible ASIN and the second asin holds jumpin ineligible asin
+        TestASIN jumpinEligibleASIN = testDTO.getTestASIN();
+        TestASIN jumpinIneligibleASIN = TestASIN.builder().asin(testAsin2).build();
+        TestASIN[] testAsins = new TestASIN[] {jumpinEligibleASIN, jumpinIneligibleASIN};
+        for (int i = 0; i < testAsins.length; i++) {
+        DetailPageHelper.goToDetailPage(driver, testAsins[i], url);
+        final DetailPage detailPage = new DetailPage(driver);
+        String offerListingValue = detailPage.getOfferListingValue();
+        CartHelper.addItemsToCart(driver, testAsins[i].getAsin(), offerListingValue);
+        }
+        final CartPage cartPage = new CartPage(driver);
+        final HelpPage helpPage = new HelpPage(driver);
+        CartHelper.goToCartPage(driver,url);
+        DecimalFormat decimalFormat = new DecimalFormat("0.00");
+        SoftAssert softAssert = new SoftAssert();
+        String expectedThresholdPriceWithCurrencySymbol = currencySymbol + " " + decimalFormat.format(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC);
+        String eligibleForFreeShippingText = CartPageLocale.EFS_UPSELL_CART_INFO_BLOCK_DELIVERY_PROGRAM_SUBTITLE.getI18NContentWithMultipleValues(Arrays.asList(freeShippingExportableCountry.getCountryDisplayName(), expectedThresholdPriceWithCurrencySymbol));
+        String[] splittingEligibleForFreeDeliveryText = eligibleForFreeShippingText.split(freeShippingExportableCountryName);
+        final String expectedEligibleForFreeShippingString = freeDeliveryText + " " + SearchResultsPageLocale.JUMPIN_MSG_FREE_IFD_THRESHOLD_OVER_FREE_SHIPPING_THRESHOLD_SX.getI18NContentWithCustomText(exportableCountry.getCountryDisplayName()) + splittingEligibleForFreeDeliveryText[1];
+        String ineligibilityMessageInCart = CartPageLocale.EFS_PAID_SHIPPING_CART_INFO_BlOCK_DELIVERY_PROGRAM_SUBTITLE.getI18NContent();
+        softAssert.assertTrue(cartPage.getShippingMessageTextInCartByASIN(jumpinEligibleASIN.getAsin(), freeDeliveryText).contains(expectedEligibleForFreeShippingString), "Eligible for Free shipping message is not displaying properly for Jumpin Below Threshold ASIN in Carts");
+        softAssert.assertTrue(cartPage.getShippingMessageTextInCartByASIN(jumpinIneligibleASIN.getAsin(), ineligibilityMessageInCart).contains(ineligibilityMessageInCart), "Ineligibility message is not displaying properly in Cart");
+        String[] expectedPartialFreeShippingUpsellMessageInCartGutter = CartPageLocale.EFS_PARTIAL_UPSELL_CART_BUYBOX_HUC_DEFAULT.getI18NContentAndSplitByPlaceholder();
+        for(String staticText : expectedPartialFreeShippingUpsellMessageInCartGutter){
+            cartPage.verifyMessageAndLinkInCartGutter(staticText.trim(), true);
+        }
+        cartPage.clickSeeDetailsLinkInCartGutter();
+        BrowserDriverHelper.switchToNewTabWithNewTabOpened(driver);
+        softAssert.assertTrue((helpPage.isHelpPageContentPresent() && driver.getCurrentUrl().contains("GUH83UTMXSACERW3")), "Free shipping help content is not displayed in Details link page");
+        String title = driver.getTitle();
+        softAssert.assertFalse(StringUtils.isBlank(title)|| title.contains("404"), "Blank page or 404 page appears in free shipping details Link");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C309571, "
+            + "Verify customer able to see \"Free Delivery\" for all (AT/BT) Book ASINs",
+            groups = {PriorityGroups.P0, FeatureGroups.JUMPIN},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testBookASINFreeDeliveryMessageInSearch(final TestDTO testDTO) throws Exception {
+        final HomePage homePage = new HomePage(driver);
+        LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountryName, url);
+        driver.navigate().refresh();
+        String asinValue = testDTO.getTestASIN().getAsin();
+        homePage.search(asinValue);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        final String observedFreeShippingMessageInSearchResults = searchResults.getShippingBenefitMessage(freeDeliveryText.trim());
+        final String expectedFreeDeliveryTextInSearchResults = SearchResultsPageLocale.CORECX_DELIVERY_PRICE_FREE.getI18NContent() + " " + SearchResultsPageLocale.CORECX_DELIVERY_TYPE_DELIVERY.getI18NContent();
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(observedFreeShippingMessageInSearchResults.contains(expectedFreeDeliveryTextInSearchResults),
+                String.format("Expected FREE delivery string for Book ASIN: [%s] was not shown correctly in observed FS Message in Search: [%s]", expectedFreeDeliveryTextInSearchResults, observedFreeShippingMessageInSearchResults));
+        softAssert.assertFalse(observedFreeShippingMessageInSearchResults.contains(freeShippingExportableCountryName),
+                String.format("Destination name present in observed FS Message in Search: [%s]", observedFreeShippingMessageInSearchResults));
+        softAssert.assertTrue(searchResults.getCountryEligibleText().contains(freeShippingExportableCountryName), "The country eligible text is not shown correctly in Search Results page.");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C309572, "
+            + "Verify customer able to see \"Free Delivery\" for all (AT/BT) Book ASINs in Detail Page",
+            groups = {PriorityGroups.P0, FeatureGroups.JUMPIN},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testBookASINFreeDeliveryMessageInDetailPage(final TestDTO testDTO) throws Exception {
+        workflowToDetailPage(testDTO, driver, freeShippingExportableCountryName);
+        final DetailPage detailPage = new DetailPage(driver);
+        final String observedFreeShippingMessageInDP = detailPage.getDetailPageAboveTheFold().getUDMMessage().trim();
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(observedFreeShippingMessageInDP.contains(freeDeliveryText),
+                String.format("Expected FREE delivery string for Book ASIN: [%s] was not shown correctly in observed FS Message in DP: [%s]", freeDeliveryText, observedFreeShippingMessageInDP));
+        softAssert.assertFalse(observedFreeShippingMessageInDP.contains(freeShippingExportableCountryName),
+                String.format("Destination name present in observed FS Message in DP: [%s]", observedFreeShippingMessageInDP));
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C309574, "
+            + "Verify customer able to see \"Free Delivery\" for all (AT/BT) Book ASINs in Cart",
+            groups = {PriorityGroups.P0, FeatureGroups.JUMPIN},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testBookASINFreeDeliveryMessageInCart(final TestDTO testDTO) throws Exception {
+        final CartPage cartPage =  new CartPage(driver);
+        final HelpPage helpPage = new HelpPage(driver);
+        final String eligibleForFreeDeliveryText = CartPageLocale.MIR_CFS_CART_FREE_SHIPPING_ELIGIBLE.getI18NContent();
+        workflowToCartPage(testDTO, driver, freeShippingExportableCountryName);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(cartPage.isEligibleForFreeShippingTextInActiveCart(eligibleForFreeDeliveryText), "Eligible for Free shipping message is not displaying for Book ASIN in Cart");
+        softAssert.assertFalse(cartPage.getShippingBenefitTextInActiveCart(eligibleForFreeDeliveryText).contains(freeShippingExportableCountryName),
+                "Destination Name displaying for Book ASIN in Cart");
+        softAssert.assertFalse(cartPage.isProgressBarInCartGutterPresent(),
+                "Progress bar shown for book ASIN in cart gutter section.");
+        String expectedFreeShippingMessageInCartGutter = CartPageLocale.MIR_FDNO_CART_FULLY_ELIGIBLE.getI18NContent();
+        cartPage.verifyMessageAndLinkInCartGutter(expectedFreeShippingMessageInCartGutter, true);
+        cartPage.clickSeeDetailsLinkInCartGutter();
+        BrowserDriverHelper.switchToNewTabWithNewTabOpened(driver);
+        softAssert.assertTrue((helpPage.isHelpPageContentPresent() && driver.getCurrentUrl().contains("GZXW7X6AKTHNUP6H")), "Free shipping help content is not displayed in Details link page");
+        String title = driver.getTitle();
+        softAssert.assertFalse(StringUtils.isBlank(title)|| title.contains("404"), "Blank page or 404 page appears in free shipping details Link");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C309613, "
+            + "Verify customer able to see \"Free Delivery\" for all (AT/BT) Book ASINs at checkout",
+            groups = {PriorityGroups.P0, FeatureGroups.JUMPIN},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testBookASINFreeDeliveryMessageInCheckout(final TestDTO testDTO) throws Exception {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, freeShippingExportableCountryName, false, false);
+        CheckoutPage checkoutPage = AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+        String shippingPriceAtCheckout = fetchPriceFromSPCOrderSummary(checkoutPage, CheckoutPageLocale.ACP_SUBTOTALS_SHIPPING.getI18NContent());
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertFalse(checkoutPage.verifyPromotionLabelPresentInOrderSummary(),"Promotion Applied Label is present in order summary for book ASIN at Checkout");
+        softAssert.assertTrue(shippingPriceAtCheckout.contains("0.00"), "Shipping charge is collecting for Book ASIN at checkout");
+        softAssert.assertTrue(checkoutPage.getSelectedShipOptionDescriptionInOrderSummary(0).contains(CheckoutPageLocale.FREE_STANDARD_DELIVERY.getI18NContent()), "Free Shipping option is not displayed in ship option in SPC Page for book ASIN");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C309612, "
+            + "Verify checkout for Mixed cart Above FST item and Book FST item",
+            groups = {PriorityGroups.P0, FeatureGroups.GROUP_JUMPIN_ABOVE_THRESHOLD},
+             dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+             dataProviderClass = AISDataProvider.class)
+    public void testBookAndAboveThresholdMixedCartInCheckout(final TestDTO testDTO, String testAsin2) throws Exception {
+        //Currently asins fetched via csv file where always the first asin holds jumpin Eligible ASIN and the second asin holds Book asin
+        wokflowToMixedASINsCartPage(testDTO, testAsin2);
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.CART_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, freeShippingExportableCountryName, false, false);
+        CheckoutPage checkoutPage = AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+        SoftAssert softAssert = new SoftAssert();
+        String shippingPriceInOrderSummary = fetchPriceFromSPCOrderSummary(checkoutPage, SHIPPING_LABEL_IN_ORDER_SUMMARY);
+        String promotionPriceInOrderSummary = fetchPriceFromSPCOrderSummary(checkoutPage, PROMOTION_LABEL_IN_ORDER_SUMMARY);
+        int exactShipPrice = (int)(Double.parseDouble(shippingPriceInOrderSummary));
+        int exactPromoPrice = (int)(Double.parseDouble(promotionPriceInOrderSummary));
+        softAssert.assertTrue((checkoutPage.getSelectedShipOptionDescriptionByASIN(testDTO.getTestASIN().getAsin()).contains(CheckoutPageLocale.FREE_STANDARD_DELIVERY.getI18NContent())), "FREE Standard Delivery option is not displayed in ship option in SPC Page for Above Threshold ASIN");
+        softAssert.assertTrue((checkoutPage.getSelectedShipOptionDescriptionByASIN(testAsin2).contains(CheckoutPageLocale.FREE_STANDARD_DELIVERY.getI18NContent())), "FREE Standard Delivery option is not displayed in ship option in SPC Page for Book ASIN");
+        softAssert.assertTrue(checkoutPage.getOrderSummaryContentPriceByCell(CheckoutPageLocale.ACP_SUBTOTALS_PROMOTION_DEFAULT.getI18NContent()).contains(String.format("-%s", currencySymbol)), "Minus symbol is not present in the promotion label in order summary");
+        softAssert.assertTrue(exactShipPrice == exactPromoPrice, "Shipping Price is not equal to the promotion Price.");
+		softAssert.assertTrue(checkoutPage.verifyFreeShippingPromoTextPresentUnderOrderSummary(CheckoutPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent()), "FREE Shipping text under order sumamry box Qualifying offers section is mismatch");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C309611, "
+            + "Verify in checkout for Mixed cart Below FST item and Book FST item",
+            groups = {PriorityGroups.P1, FeatureGroups.GROUP_JUMPIN_BELOW_THRESHOLD},
+             dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+             dataProviderClass = AISDataProvider.class)
+    public void testBookAndBelowThresholdMixedCartInCheckout(final TestDTO testDTO, String testAsin2) {
+        //Currently asins fetched via csv file where always the first asin holds jumpin Eligible ASIN and the second asin holds Book asin
+        wokflowToMixedASINsCartPage(testDTO, testAsin2);
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.CART_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, freeShippingExportableCountryName, false, false);
+        CheckoutPage checkoutPage = AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertFalse(checkoutPage.verifyPromotionLabelPresentInOrderSummary(),"Promotion Applied Label is present in order summary for below threshold Checkout");
+        softAssert.assertTrue((checkoutPage.getSelectedShipOptionDescriptionInOrderSummary(0).contains(CheckoutPageLocale.MFN_SHIP_OPTION.getI18NContent())), "Free Shipping ship option string is displayed for jumpin Book asin in SPC page");
+        softAssert.assertFalse(checkoutPage.verifyFreeShippingPromoTextPresentUnderOrderSummary(CheckoutPageLocale.JUMPIN_MSG_FREE_SHIPPING.getI18NContent()), "Free Delivery text under under order sumamry box Qualifying offers section is Present");
+        softAssert.assertAll();
+    }
+
+    /**
+     * Method to get the price value from order summary in SPC page.
+     * @param rowText text which is present in order Summary
+     */
+    public String fetchPriceFromSPCOrderSummary(CheckoutPage checkoutPage, String rowText) throws Exception {
+        String[] priceValue;
+        priceValue = checkoutPage.getOrderSummaryContentPriceByCell(rowText).trim().split(currencySymbol);
+        if (priceValue.length < 1) {
+            throw new IllegalArgumentException("Price length in SPC is expected to be greater than 1 but it is " + priceValue.length);
+        }
+        return priceValue[1];
+    }
+
+    /**
+     * Method to go to sign in and go to detail page of an ASIN.
+     */
+    private void workflowToDetailPage(final TestDTO testDTO, final WebDriver driver, String countryName) {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, countryName, url);
+        driver.navigate().refresh();
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+    }
+
+    /**
+     * Method to Add ASIN from Cart Internal Tool Interface and lands on Cart page.
+     */
+    private void workflowToCartPage(final TestDTO testDTO, final WebDriver driver, String countryName) {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, countryName, url);
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, freeShippingExportableCountryName);
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        final DetailPage detailPage = new DetailPage(driver);
+        String offerListingValue = detailPage.getOfferListingValue();
+        CartHelper.addItemsToCart(driver, testDTO.getTestASIN().getAsin(), offerListingValue);
+        CartHelper.goToCartPage(driver,url);
+    }
+
+    /**
+     * Method to Add Mixed cart ASIN to Cart page.
+     */
+    private void wokflowToMixedASINsCartPage(TestDTO testDTO, String testAsin2) {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountryName, url);
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, freeShippingExportableCountryName);
+        TestASIN jumpinEligibleASIN = testDTO.getTestASIN();
+        TestASIN jumpinIneligibleASIN = TestASIN.builder().asin(testAsin2).build();
+        TestASIN[] testAsins = new TestASIN[] {jumpinEligibleASIN, jumpinIneligibleASIN};
+        for (int i = 0; i < testAsins.length; i++) {
+        DetailPageHelper.goToDetailPage(driver, testAsins[i], url);
+        final DetailPage detailPage = new DetailPage(driver);
+        String offerListingValue = detailPage.getOfferListingValue();
+        CartHelper.addItemsToCart(driver, testAsins[i].getAsin(), offerListingValue);
+        }
+    }
+}
