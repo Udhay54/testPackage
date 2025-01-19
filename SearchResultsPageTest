@@ -1,0 +1,359 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.locale.search.SearchResultsPageLocale;
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.common.WeblabConstants;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.helper.AISModeHelper;
+import com.amazon.aeeqa.ui.pagemodels.globalnav.GlobalNavPage;
+import lombok.extern.slf4j.Slf4j;
+import org.openqa.selenium.WebDriver;
+import org.testng.Assert;
+import org.testng.annotations.*;
+import java.util.*;
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.*;
+import com.amazon.aeeqa.ui.pagemodels.home.HomePage;
+import com.amazon.aeeqa.ui.pagemodels.search.SearchResultsPage;
+import org.testng.asserts.SoftAssert;
+
+/**
+ * Test class for verifying key components of search in English and Non-English languages of AIS mode.
+ *
+ * @author othogat
+ */
+@Slf4j
+public class SearchResultsPageTest extends AISBaseUITest {
+
+    private static final String filtersAbsenceCheckKeyword = "vegetables";
+    private static final String primeAbsenceCheckKeyword = "pc";
+    private static final String countryEligibilityCheckKeyword = "toys";
+    private static final String skalaEligibilityCheckKeyword = "shoes";
+
+    //A list of common browse page categories used in AIS for department page based search
+    private static String[] getCommonBrowsePageCategories() {
+        return new String[]{
+                "search-alias=baby-products-intl-ship",
+                "search-alias=beauty-intl-ship",
+                "search-alias=stripbooks-intl-ship",
+                "search-alias=toys-and-games-intl-ship"
+        };
+    }
+
+    private static String[] domesticSpecificBrowsePageCategoriesList =  {
+            "search-alias=amazonfresh",
+            "search-alias=amazon-pharmacy",
+            "search-alias=warehouse-deals",
+            "search-alias=subscribe-with-amazon",
+            "search-alias=wholefoods",
+            "search-alias=prime-exclusive"
+    };
+
+    @BeforeMethod(alwaysRun = true)
+    public void overrideWeblab() {
+        //TODO: Forcing Experimental weblab SEARCH_NAV_393862 to C. https://issues.amazon.com/issues/D36348120.
+        addWeblabCookie(WeblabConstants.SEARCH_NAV_393862);
+        //TODO: Forcing Experimental weblab SEARCH_458435 to C. https://issues.amazon.com/issues/D72651325.
+        addWeblabCookie(WeblabConstants.SEARCH_458435);
+    }
+
+    @Test(description = "C65115, "
+            + "ASIN Filtering: Verify user should only see export eligible products to selected location",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SEARCH, FeatureGroups.RUN_PIPELINE})
+    public void testSearchResultsPageWithKeyword() throws Exception {
+        workflowToChangeLocation(exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(countryEligibilityCheckKeyword);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        // Search results page loads 2 different types of UI at random times,
+        // Since both these UI's have the element ID's in common, Validating the strings inside if section.
+        //TODO: Pass the country Eligibility text as a parameter for verification https://issues.amazon.com/issues/D109607240
+        if (searchResults.isSearchShowResultsContextualEligibleTextPresent()) {
+            softAssert.assertTrue(searchResults.getCountryEligibleText().contains(SearchResultsPageLocale.SX_ELIGIBLE_GLOBAL_SHIPPING_INTERNATIONAL.getI18NContentWithCustomText(exportableCountry.getCountryDisplayName()))
+                    , "The country eligible text is not shown correctly in Search Results page.");
+        } else {
+            softAssert.fail("The 'Show results for' OR 'Departments' text was not found in Search Results page.");
+        }
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C65116, "
+            + "Verify International customers should not see prime filter on left panel of search results page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SEARCH})
+    public void testPrimeFilterAbsent() throws Exception {
+        workflowToChangeLocation(exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(filtersAbsenceCheckKeyword);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        searchResults.verifyPrimeFilterAbsent();
+    }
+
+    @Test(description = "C65120, "
+            + "Verify International customers should not see prime badging on each of the search results items",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SEARCH})
+    public void testPrimeBadgeAbsent() throws Exception {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getABasicAisAsin()), buildTestAccountRequest(AccountConstants.TAG_PRIME_AIS));
+        testDTO = generateTestDTO(testDTORequest);
+        workflowToSignInAndChangeLocation(testDTO, exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(primeAbsenceCheckKeyword);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        searchResults.verifyPrimeBadgeAbsent();
+    }
+
+    @Test(description = "C65119, "
+            + "Verify International customers should not see \"Prime Pantry\" filter",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SEARCH})
+    public void testPantryFilterAbsent() throws Exception {
+        workflowToChangeLocation(exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(filtersAbsenceCheckKeyword);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        searchResults.verifyPantryFilterAbsent();
+    }
+
+    @Test(description = "C65118, "
+            + "Verify International customers should not see \"Amazon Fresh\" Filter in search results left panel",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SEARCH})
+    public void testFreshFilterAbsent() throws Exception {
+        workflowToChangeLocation(exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(filtersAbsenceCheckKeyword);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        searchResults.verifyFreshFilterAbsent();
+    }
+
+    @Test(description = "C65117, "
+            + "Verify International customers should not see \"Prime | Free One-Day\" Shipping filter",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SEARCH})
+    public void testFreeShippingFilterAbsent() throws Exception {
+        workflowToChangeLocation(exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(filtersAbsenceCheckKeyword);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        searchResults.verifyFreeShippingFilterAbsent();
+    }
+
+    @Test(description = "Customer should be able to search and view products in Non-English language",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.SEARCH},
+            dataProvider = "LOCALIZED_LANGUAGE_KEYWORDS")
+    //TODO: Enable other AIS MPs once LoPs are launched in new AIS MPs
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    public void testSearchResultsPageInNonEnglishLanguages(String selectedLanguage, String testCaseID, String selectedLanguageSearchKeyword, String selectedLanguageRadioButtonText,
+                                                           String selectedLanguageSaveButtonText, String selectedLanguageSearchResultsText, String selectedLanguageDepartmentsText) throws Exception {
+        LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        switchToSelectedLanguageAndSearchLocalizedKeyword(driver, selectedLanguage, testCaseID, selectedLanguageSearchKeyword, selectedLanguageRadioButtonText,
+                selectedLanguageSaveButtonText, selectedLanguageSearchResultsText, selectedLanguageDepartmentsText);
+    }
+
+    @Test(description = "C140631, "
+            + "Verify user is able to see \"Ships Locally\" refinement in the search results page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SEARCH}, enabled=false)
+    //TODO: Enable skala tests once business team requests regression testing -https://issues.amazon.com/issues/AEEQAAutomation-122
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    public void testShipsLocallyCheckBoxPresentsForSkalaOffers() throws Exception {
+        workflowToChangeLocation(skalaExportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(skalaEligibilityCheckKeyword);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        Assert.assertTrue(searchResults.isShipsLocallyCheckboxPresent(), "Ships locally filter is not showing up");
+    }
+
+    @Test(description = "C140633, "
+            + " Verify when \"Ships Locally\" refinement is on all ASINs displayed should have \"Ships fast from Israel\" message ",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SEARCH}, enabled=false)
+    //TODO: Enable skala tests once business team requests regression testing -https://issues.amazon.com/issues/AEEQAAutomation-122
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    public void testShipsFastFromTextPresentsForSkalaOffers() throws Exception {
+        workflowToChangeLocation(skalaExportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(skalaEligibilityCheckKeyword);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        searchResults.clickOnShipsLocallyCheckbox();
+        searchResults.verifyShipsFastFromTextPresent();
+        Assert.assertTrue(searchResults.getShipsFastFromText().contains(skalaExportableCountry.getCountryDisplayName())
+                , "Skala country name is missing. Expected message: 'Ships fast from XX' but instead Observed message: " + searchResults.getShipsFastFromText());
+    }
+
+    /**
+     *
+     * Helps switching to non-english languages and searching with non-english keywords.
+     *
+     * @param driver the web driver instance
+     * @param localizedLanguage the language opted by the user for switching
+     * @param testCaseIDInTestRails the test case ID mapping in test rails
+     * @param localizedLanguageSearchKeyword the localized search keyword of the language opted by user
+     * @param localizedLanguageRadioButtonText the localized radio button text of the language opted by user
+     * @param localizedLanguageSaveButtonText the localized save button text of the language opted by user
+     * @param localizedLanguageSearchResultsText the localized search results text of the language opted by user
+     * @param localizedLanguageDepartmentsText the localized departments text of the language opted by user
+     */
+    private void switchToSelectedLanguageAndSearchLocalizedKeyword(final WebDriver driver, final String localizedLanguage, final String testCaseIDInTestRails, final String localizedLanguageSearchKeyword,
+                                                                   final String localizedLanguageRadioButtonText, final String localizedLanguageSaveButtonText,
+                                                                   final String localizedLanguageSearchResultsText, final String localizedLanguageDepartmentsText) {
+        final HomePage homePage = new HomePage(driver);
+        homePage.switchToNonEnglishLanguage(localizedLanguageRadioButtonText, localizedLanguageSaveButtonText);
+        driver.navigate().refresh();
+        homePage.search(localizedLanguageSearchKeyword);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+
+        // Search results page loads 2 different types of UI at random times, both these UI's have no element ID's in common.
+        if (searchResults.isLeftNavLocalizedShowResultsTextPresent()) {
+            Assert.assertEquals(searchResults.getLeftNavLocalizedShowResultsText(),localizedLanguageSearchResultsText,
+                    String.format("The 'Show results for' text isn't localized in %s language in Search Results page.",localizedLanguage));
+        } else if (searchResults.isLeftNavLocalizedDepartmentsTextPresent(localizedLanguageDepartmentsText)) {
+            Assert.assertEquals(searchResults.getLeftNavLocalizedDepartmentsText(localizedLanguageDepartmentsText),localizedLanguageDepartmentsText,
+                    String.format("The 'Departments' text isn't localized in %s language in Search Results page.",localizedLanguage));
+        } else {
+            Assert.fail(
+                    String.format("The 'Show results for' OR 'Departments' text was not found in %s language in Search Results page.",localizedLanguage));
+        }
+    }
+
+    /**
+     * Gets the localized keywords of 8 non-english languages.
+     *
+     * @return localized keywords data provider object.
+     */
+    @DataProvider(name = "LOCALIZED_LANGUAGE_KEYWORDS")
+    public Object[][] getLocalizedLanguageKeywords() {
+        return new Object[][] {
+                { "Spanish", "TestCaseID: C78986", "juguetes", "español", "Guardar", "Mostrar resultados para","Departamento" },
+                { "SimplifiedChinese", "TestCaseID: C65190", "玩具", "中文 (简体)", "保存更改", "显示搜索结果：", "商品类别" },
+                { "German", "TestCaseID: C65189", "Spielzeuge", "Deutsch", "Änderungen speichern","Ergebnisse anzeigen für", "Kategorie" },
+                { "Portuguese", "TestCaseID: C65191", "brinquedos", "português", "Salvar alterações","Mostrar resultados para", "Departamento" },
+                { "TraditionalChinese", "TestCaseID: C65192", "玩具", "中文 (繁體)", "儲存變更", "顯示以下項目的結果", "分類" },
+                { "Korean", "TestCaseID: C65193", "장난감", "한국어", "변경 사항 저장", "결과 표시", "제품군" },
+                { "Hebrew", "TestCaseID: C140635", "צעצועים", "עברית", "שמירת שינויים", "תוצאות עבור", "מחלקה" },
+                { "Arabic", "TestCaseID: C243605", "ألعاب الأطفال", "العربية", "احفظ التغييرات", "عرض نتائج عن","القسم" }
+        };
+    }
+
+    @Test(description = "C243606, "
+            + "Verify International customers should not see \"Free Shipping\" message anywhere in the search result page for Non Jumpin countries",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SEARCH})
+    public void testFreeShippingMessageAbsentForNonJumpin() throws Exception {
+        workflowToChangeLocation(exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(countryEligibilityCheckKeyword);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        Assert.assertFalse(searchResults.isFreeShippingMessagePresent(), "Free Shipping Message is displayed for Non Jumpin countries");
+    }
+
+    @Test(description = "C244341, "
+            + "Verify International customers should not see Domestic Free Shipping filter in search results page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SEARCH})
+    public void testDomesticFilterAbsent() throws Exception {
+        testDTORequest = buildTestDTORequest(null, buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        LocationHelper.signInAndChangeLocation(driver, testDTO, exportableCountry.getCountryDisplayName(), url);
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(countryEligibilityCheckKeyword);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        searchResults.verifySearchRefinementsByIdNotPresent(SearchResultsPage.SEARCH_REFINEMENT_DOMESTIC_US_FREE_SHIPPING_ID);
+    }
+
+    @Test(description = "C282078, "
+            + "Verify Prime and Free shipping filters are suppressed for international customers in browse page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SEARCH})
+    public void testPrimeAndFreeShippingFilterSuppressedInBrowsePage() throws Exception {
+        workflowToChangeLocation(exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        final GlobalNavPage globalNavPage = new GlobalNavPage(driver);
+        //Select a random department from the common BrowsePage Category List
+        globalNavPage.selectSpecificCategoryInSearchDropdown(getRandomBrowsePageCategoriesFromList());
+        globalNavPage.verifyAndClickSearchBarGoButton();
+        SearchResultsPage searchResults = new SearchResultsPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertFalse(searchResults.isBrowsePageSearchRefinementsByNamePresent("Prime"),"Prime Filter is displayed");
+        //'Free shipping' filters are displayed in various formats
+        softAssert.assertFalse(searchResults.isBrowsePageSearchRefinementsByNamePresent(lmsHelper.getTextForStringId("free-shipping"))
+                        || searchResults.isBrowsePageSearchRefinementsByNamePresent(lmsHelper.getTextForStringId("jumpin_msg_free_shipping"))
+                        || searchResults.isBrowsePageSearchRefinementsByNamePresent(lmsHelper.getTextForStringId("free-shipping-by-amazon-primary-text"))
+                        || searchResults.isBrowsePageSearchRefinementsByNamePresent(lmsHelper.getTextForStringId("sx-non-prime-free-shipping-by-amazon"))
+                ,"Free Shipping filter is displayed");
+        softAssert.assertFalse(searchResults.isBrowsePageSearchRefinementsByNamePresent(lmsHelper.getTextForStringId("corecx_delivery_price_free") + " " + lmsHelper.getTextForStringId("corecx_delivery_type_delivery"))
+                        || searchResults.isBrowsePageSearchRefinementsByNamePresent(lmsHelper.getTextForStringId("fshubgw_freeDeliverybyAmazon"))
+                , "Free Delivery filter is displayed");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C287215, "
+            + "Verify 'Ships Locally' option is suppressed when 'Ships Locally' toggle is enabled first and Glow address is switched to <SkalaNotSupported> region",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.SEARCH}, enabled=false)
+    //TODO: Enable skala tests once business team requests regression testing -https://issues.amazon.com/issues/AEEQAAutomation-122)
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    public void testShipsLocallyCheckBoxNotPresentForNonSkalaDestination() throws Exception {
+        workflowToChangeLocation(skalaExportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(skalaEligibilityCheckKeyword);
+        final SearchResultsPage searchResults = new SearchResultsPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(searchResults.isShipsLocallyCheckboxPresent()
+                , "Ships locally filter is not present for skala destination " + skalaExportableCountry.getCountryDisplayName());
+        workflowToChangeLocation(exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        softAssert.assertFalse(searchResults.isShipsLocallyCheckboxPresent()
+                , "Ships locally filter is present for non skala destination " + exportableCountry.getCountryDisplayName());
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C281310, "
+            + "Verify International customers should not see following items on search bar drop down list : AmazonFresh , Amazon Warehouse Deals & Amazon Pharmacy etc.",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.SEARCH})
+    public void testDomesticSpecificCategorySuppressedInSearchDropdown() throws Exception {
+        workflowToChangeLocation(exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        final GlobalNavPage globalNavPage = new GlobalNavPage(driver);
+        for(int i=0; i < domesticSpecificBrowsePageCategoriesList.length; i++)
+        {
+            Assert.assertFalse(globalNavPage.isSpecificCategoryInSearchDropdownPresent(domesticSpecificBrowsePageCategoriesList[i]),"Domestic specific category such as AmazonFresh, Amazon Warehouse Deals etc shown in search dropdown in AIS Mode");
+        }
+    }
+
+    public static String getRandomBrowsePageCategoriesFromList() {
+        List<String> browsePageCategories = Arrays.asList(getCommonBrowsePageCategories());
+        return browsePageCategories.get(new Random().nextInt(browsePageCategories.size()));
+    }
+
+    private void workflowToChangeLocation (String countryName) {
+        runWithRetry("SearchPageTest#changeLocationToEnterAISMode", () -> {
+            LocationHelper.changeLocation(driver, countryName);
+            driver.navigate().refresh();
+            //TODO: Experimental weblab SEARCH_UDM_EXPORTS_V2_592507 is yet to be launched. Forcing it to C. If weblab gets launched, then follow this https://issues.amazon.com/issues/D74289512 for updating with new CX.
+            addWeblabCookie(WeblabConstants.SEARCH_UDM_EXPORTS_V2_592507);
+            //Adding this check to verify if AIS mode has been entered
+            AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, countryName);
+            return true;
+        }, Throwable.class);
+    }
+
+    private void workflowToSignInAndChangeLocation (TestDTO testDTO, String countryName) {
+        runWithRetry("SearchPageTest#signInAndChangeLocationToEnterAISMode", () -> {
+            LocationHelper.signInAndChangeLocation(driver, testDTO, exportableCountry.getCountryDisplayName(), url);
+            driver.navigate().refresh();
+            //TODO: Experimental weblab SEARCH_UDM_EXPORTS_V2_592507 is yet to be launched. Forcing it to C. If weblab gets launched, then follow this https://issues.amazon.com/issues/D74289512 for updating with new CX.
+            addWeblabCookie(WeblabConstants.SEARCH_UDM_EXPORTS_V2_592507);
+            //Adding this check to verify if AIS mode has been entered
+            AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, countryName);
+            return true;
+        }, Throwable.class);
+    }
+}
