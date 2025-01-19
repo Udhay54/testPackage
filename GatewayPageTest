@@ -1,0 +1,158 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.helper.*;
+import org.testng.Assert;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+import org.apache.commons.lang3.StringUtils;
+
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.dataprovider.AISDataProvider;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.locale.glow.GlowWidgetLocale;
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.testasins.AisProductGroupType;
+import com.amazon.aeeqa.ui.pagemodels.home.GlowWidget;
+import com.amazon.aeeqa.ui.pagemodels.home.HomePage;
+import com.amazon.aeeqa.ui.pagemodels.cart.CartPage;
+import com.amazon.aeeqa.ui.pagemodels.checkout.CheckoutPage;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+import com.amazon.aeeqa.ui.pagemodels.search.SearchResultPage;
+import com.amazon.aeeqa.ui.pagemodels.search.SearchResultsPage;
+import com.amazon.aeeqa.util.RetrySteps;
+import com.amazon.dtk.type.BrowserName;
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * This test class is for verifying the Gateway page for AIS customers
+ *
+ * @author Shruthika
+ */
+@Slf4j
+public class GatewayPageTest extends AISBaseUITest {
+
+    private static final String AU_ADDRESS_NAME = "AU address";
+
+    //TODO: Need to rework this case to work for other MPs
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    @Test(description = "C232425, "
+            + "Verify AIS customers should P13N widgets in gateway BTF and also see title displayed in all the widgets in their LOP",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.GATEWAY, FeatureGroups.RUN_PIPELINE})
+    public void testP13NInGatewayBTF() {
+        final HomePage homePage = new HomePage(driver);
+        LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+        // Verify the customer actually in Export mode
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+        String[] language = new String[]{"en", "de", "he"};
+        String[] languageCountryCode = new String[]{"US", "DE", "IL"};
+        SoftAssert softAssert = new SoftAssert();
+        int i=0;
+        try {
+            while (i < language.length) {
+                for (int widgetIndex = 0; widgetIndex < homePage.getP13NWidgetsCount(); widgetIndex++) {
+                    try {
+                        softAssert.assertTrue(homePage.isP13NWidgetPresent(widgetIndex), "P13N widget is missing at index " + widgetIndex);
+                        softAssert.assertTrue(homePage.isP13NWidgetTitlePresent(widgetIndex), "P13N widget title is missing at index " + widgetIndex);
+                    }
+                    catch (ArrayIndexOutOfBoundsException e) {
+                        String errorMessage = String.format("Index out of bounds: Tried to access the widget %d, but only %d widgets are available.", widgetIndex, homePage.getP13NWidgetsCount());
+                        log.error(errorMessage, e);
+                        softAssert.fail(errorMessage);
+                    }
+                }
+                String languageCode = language[i] + "_" + languageCountryCode[i];
+                LanguageHelper.switchToAnyLanguage(driver, url, languageCode);
+                i++;
+            }
+            softAssert.assertAll();
+        } finally {
+            String languageCode = LANGUAGE_CODE + "_" + COUNTRY_CODE;
+            LanguageHelper.switchToAnyLanguage(driver, url, languageCode);
+        }
+    }
+
+    //TODO: Glow Differs for these MPs, need to rework
+    @MethodSelector(exclude = {"AE", "AU", "SG"})
+    @Test(description = "C232255, "
+            + "Verify on clicking/tapping GLOW, glow popover should display and it should be in their LOP",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.GATEWAY})
+    public void testGlowPopoverContents() {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+        getABasicAisAsin()),buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        reportTestDTO(null, testDTO, null);
+        SignInAndOutHelper.signIn(driver, testDTO, url);
+        final HomePage homePage = new HomePage(driver);
+        homePage.clickAmazonLogo();
+        final GlowWidget glow = new GlowWidget(driver);
+        glow.clickGlowLink();
+        glow.changeLocationFromAddressList(AU_ADDRESS_NAME);
+        SoftAssert softAssert = new SoftAssert();
+        driver.navigate().refresh();
+        glow.clickGlowLink();
+        glow.verifyChooseYourLocationHeadingPresent();
+        glow.verifyGlowPopoverExistingAddressBlockPresent();
+        glow.verifyAddressSelectionSubTextPresent();
+        glow.verifyZipcodeInputEnabled("11111");
+        glow.verifySeeAllAddressLinkPresent();
+        softAssert.assertTrue(glow.getManageAddressText().contains(GlowWidgetLocale.GLUX_ADDRESSBOOK_TEXT.getI18NContent()), "Manage address string in glow popover is mismatch");
+        glow.verifyZipCodeApplyButtonPresent();
+        softAssert.assertTrue(glow.getGlowPopoverDoneButtonText().contains(GlowWidgetLocale.DONE_LABEL_DESKTOP.getI18NContent()), "Done Botton string in glow popover is mismatch");
+        softAssert.assertTrue(glow.getGlowPopoverZipCodeDividerText().contains(GlowWidgetLocale.GLUX_POSTAL_CODE_LABEL_TEXT.getI18NContent()),"Zipcode divider strings in glow popover is mismatch");
+        softAssert.assertEquals(glow.getGlowPopoverCountryDropdownText(),GlowWidgetLocale.GLUX_COUNTRY_LIST_PLACEHOLDER.getI18NContent(),"Country Dropdown strings in glow popover is mismatch");
+        softAssert.assertAll();
+        }
+
+    @Test(description = "C232254, "
+            + "Verify GLOW should be persistant and in their LOP for Gateway, Search , DP and cart",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.GATEWAY})
+    public void testGlowIsPersistentInAllPages() {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getABasicAisAsin()), null /* no account */);
+        testDTO = generateTestDTO(testDTORequest);
+        final HomePage homePage = new HomePage(driver);
+        final GlowWidget glow = new GlowWidget(driver);
+        final SearchResultPage search = new SearchResultPage(driver);
+        final DetailPage detailPage= new DetailPage(driver);
+        final CartPage cart = new CartPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        LocationHelper.changeLocation(driver,exportableCountry.getCountryDisplayName());
+        homePage.verifyCurrentPage();
+        softAssert.assertTrue(glow.isGlowWidgetPresent(),"Glow widget block is not present in Gateway Page");
+        homePage.search("toys");
+        search.verifyCurrentPage();
+        softAssert.assertTrue(glow.isGlowWidgetPresent(),"Glow widget block is not present in Search Page");
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        detailPage.verifyCurrentPage();
+        softAssert.assertTrue(glow.isGlowWidgetPresent(),"Glow widget block is not present in Detail Page");
+        String offerListingValue = detailPage.getOfferListingValue();
+        CartHelper.addItemsToCart(driver, testDTO.getTestASIN().getAsin(), offerListingValue);
+        CartHelper.goToCartPage(driver,url);
+        cart.verifyCurrentPage();
+        softAssert.assertTrue(glow.isGlowWidgetPresent(),"Glow widget block is not present in Cart Page");
+        softAssert.assertAll();
+    }
+
+    //TODO: Enable other AIS MPs if Jumpin Hero Banner is launched in new AIS MPs
+    //Enable case by following - https://issues.amazon.com/issues/P55271897
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    @Test(description = "C232281, "
+            + "Jumpin - Verify Hero Banner \"Now available Free shipping to XX\" displayed and also validate the redirecting page for all Jumpin Destinations",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.GATEWAY},
+            enabled = false)
+    public void testHeroBannerForJumpin() {
+        final HomePage homePage = new HomePage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        LocationHelper.changeLocation(driver, freeShippingExportableCountry.getCountryDisplayName());
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, freeShippingExportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        softAssert.assertTrue(homePage.getHeroBannerImg().contains(freeShippingExportableCountry.getCountryDisplayName()), "Hero banner is not displayed for Jumpin");
+        softAssert.assertFalse(homePage.getJumpinHeroBannerURL().isEmpty(), "No URL found for jumpin banner");
+        homePage.clickHeroBanner();
+        softAssert.assertTrue(StringUtils.isNotBlank(driver.getTitle())
+                && !driver.getTitle().contains("404"), "404 page appears.");
+        softAssert.assertAll();
+    }
+}
