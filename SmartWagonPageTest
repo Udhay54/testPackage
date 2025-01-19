@@ -1,0 +1,96 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.request.TestDTORequest;
+import com.amazon.aeeqa.ui.helper.*;
+import com.amazon.aeeqa.ui.pagemodels.smartwagonPage.SmartWagonPage;
+import com.amazon.aeeqa.utils.SleepUtil;
+import org.openqa.selenium.WebDriver;
+import org.testng.Assert;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.Test;
+
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.dataprovider.AISDataProvider;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+import org.testng.asserts.SoftAssert;
+
+import java.lang.reflect.Method;
+import java.net.URL;
+
+/**
+ * Test class for test cases associated to the SmartWagon page
+ *
+ * @author kumarlll
+ */
+public class SmartWagonPageTest extends AISBaseUITest {
+
+    @AfterMethod(alwaysRun = true)
+    public void afterSmartWagonTestClearCart(Method testMethodName) {
+        // Run only once and ignore any exception if happened
+        runOnceAndIgnoreAllException("SmartWagonPageTest#clearCart", () -> {
+            CartHelper.clearItemsInCart(driver);
+            return true;
+        });
+    }
+
+    @Test(description = "C281740, "
+            + "Verify Free shipping message not displayed anywhere in Smart Wagon page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SMART_WAGON_PAGE},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testFreeShippingMessageIsNotDisplayedInSmartWagonPage(final TestDTO testDTO) throws InterruptedException {
+        workflowToSmartWagonPage(testDTO, driver, exportableCountry.getCountryDisplayName(), url);
+        SmartWagonPage smartWagonPage = new SmartWagonPage(driver);
+        Assert.assertFalse(smartWagonPage.isFreeShippingEligibleMessagePresent(), "Free Shipping is displayed in Smart Wagon page");
+    }
+
+    @Test(description = "C281737, "
+            + "[Prime/NonPrime] Verify International customers should not see 'Amazon Rewards Visa Card' or " +
+            "'Amazon Store card' promotion message",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.SMART_WAGON_PAGE},
+            dataProviderClass = AISDataProvider.class)
+    public void testPromotionMessageIsNotDisplayed() {
+        //TestDTORequest with Non Prime Account
+        TestDTORequest testDTORequest1 = buildTestDTORequest(buildTestAsinRequest(getABasicAisAsin()),
+                buildTestAccountRequest(AccountConstants.TAG_BASIC));
+        TestDTO testDTO1 = generateTestDTO(testDTORequest1);
+        workflowToSmartWagonPage(testDTO1, driver, exportableCountry.getCountryDisplayName(), url);
+        SmartWagonPage smartWagonPage = new SmartWagonPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertFalse(smartWagonPage.isPromotionMessagePresent(), "Promotion message is seen in the " +
+                "smart wagon page");
+        CartHelper.clearItemsInCart(driver);
+        //TestDTORequest with Prime Account
+        TestDTORequest testDTORequest2 = buildTestDTORequest(buildTestAsinRequest(getABasicAisAsin()),
+                buildTestAccountRequest(AccountConstants.TAG_PRIME_AIS));
+        TestDTO testDTO2 = generateTestDTO(testDTORequest2);
+        workflowToSmartWagonPage(testDTO2, driver, exportableCountry.getCountryDisplayName(), url);
+        softAssert.assertFalse(smartWagonPage.isPromotionMessagePresent(), "Promotion message is seen in the " +
+                "smart wagon page");
+        softAssert.assertAll();
+    }
+
+    /**
+     * Method to navigate to the smart wagon page
+     */
+    void workflowToSmartWagonPage(final TestDTO testDTO, final WebDriver driver, String countryName, URL url) {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, countryName, url);
+        driver.navigate().refresh();
+        //Adding this check to verify if AIS mode has been entered
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, countryName);
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.addToCart();
+        SleepUtil.sleep(1000);
+        SmartWagonPage smartWagonPage = new SmartWagonPage(driver);
+        if (!smartWagonPage.verifySmartWagonPage()) {
+            DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+            //When an item is added to the cart and EWC is present, the following line can be used to retrieve the SmartWagon ID.
+            driver.get(String.format("%s/cart/smart-wagon?newItems=%s,1", url, smartWagonPage.getSmartWagonItemID(testDTO.getTestASIN().getAsin())));
+        }
+    }
+}
