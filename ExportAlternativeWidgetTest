@@ -1,0 +1,151 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.locale.ImportFeesStrings;
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.common.Country;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.groups.TestEnvGroups;
+import com.amazon.aeeqa.ui.helper.*;
+import com.amazon.aeeqa.ui.pagemodels.cart.CartPage;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.testng.Assert;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+
+import java.lang.reflect.Method;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * Export Alternative Widget Test Cases - aIS.
+ *
+ * @author vllaks
+ */
+@Slf4j
+//TODO: Enable other AIS MPs once EAW is launched in new AIS MPs
+//TODO: https://issues.amazon.com/issues/D43490794 Re-enable EAW tests for pre-prod after cards issue is fixed in gamma.
+@MethodSelector(exclude = {"JP", "AE", "AU", "SG"}, skipStageEnv = TestEnvGroups.GAMMA)
+public class ExportAlternativeWidgetTest extends AISBaseUITest {
+
+    @BeforeClass(alwaysRun = true)
+    public void exportAlternativeWidgetInitTestData() {
+        //Overriding Product Group Type since this class use SDC config for ASIN which is mapped only for gl_toy
+        productGroupType = "gl_toy";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getAisHardCodeASIN("aisCurrentlyUnavailableAsin")), buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+    }
+
+    @BeforeMethod(alwaysRun = true)
+    public void changeLocationToEnterAISModeAndGoToDetailPage(Method testMethodName) {
+        if (testDTO.getTestASIN().getAsin() == null) {
+            log.warn("ASIN not there, ignoring @BeforeMethod body.");
+            return;
+        }
+        runWithRetry("ExportAlternativeWidgetDetailPage#changeLocationToEnterAISModeAndGoToDetailPage", () -> {
+            LocationHelper.signInAndChangeLocation(driver, testDTO, exportableCountry.getCountryDisplayName(), url);
+            driver.navigate().refresh();
+            //Adding delete items in cart to make sure there is no item for further validation
+            CartHelper.clearItemsInCart(driver);
+            DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+            return true;
+        }, Throwable.class);
+    }
+
+    @AfterMethod(alwaysRun = true)
+    public void deleteItemsFromCart() {
+        // Run only once and ignore any exception if happened
+        runOnceAndIgnoreAllException("CartPage#removeItemsFromCart", () -> {
+            CartHelper.clearItemsInCart(driver);
+            return true;
+        });
+    }
+
+    @Test(description = "C232389, "
+            + "Verify \"Export Alternative Widget(EAW)\" button should display and should be clickable for Export Ineligible ASINs in DP-buybox",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.EXPORT_ALTERNATIVE_WIDGET, FeatureGroups.RUN_PIPELINE})
+    public void testExportAlternativeWidgetButtonPresent() throws Exception {
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.getDetailPageAboveTheFold().verifySeeSimilarItemsButtonPresent();
+    }
+
+    @Test(description = "C232392, "
+            + "Verify EAW should reflect product image, title, review rating with stars, price, IFD, shipping fee, and total cost clearly",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.EXPORT_ALTERNATIVE_WIDGET})
+    public void testExportAlternativeWidgetContent() throws Exception {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.getDetailPageAboveTheFold().clickSeeSimilarItemsButton();
+        detailPage.getDetailPageAboveTheFold().verifyExportAlternativeWidgetContent();
+        Map<String, String> popoverTableContents = new LinkedHashMap<String, String>();
+        popoverTableContents.put("Price",selectedCurrency);
+        popoverTableContents.put("Shipping Fee",selectedCurrency);
+        popoverTableContents.put(ImportFeesStrings.getEawIFDString(exportableCountry), selectedCurrency);
+        popoverTableContents.put("Total Estimated Cost",selectedCurrency);
+        popoverTableContents.put("Rating","reviews");
+        SoftAssert softAssert = new SoftAssert();
+        try {
+            for (Map.Entry<String, String> popoverContent : popoverTableContents.entrySet()) {
+                softAssert.assertTrue(StringUtils.isNotBlank(detailPage.getDetailPageAboveTheFold().
+                                getExportAlternativeWidgetData(popoverContent.getKey(), popoverContent.getValue())),
+                        String.format("Missing data for the Field: %s", popoverContent.getKey()));
+            }
+            softAssert.assertAll();
+        } finally {
+            //Resetting the currency back to USD for other test using this account.
+            BrowserDriverHelper.goToUrl(driver, url);
+            CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+            CurrencySelectionHelper.selectCurrencyByNameToShopWith(driver, "Default");
+        }
+    }
+
+    @Test(description = "C240839, "
+            + "Verify user able to Add Item to Cart from the EAW",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.EXPORT_ALTERNATIVE_WIDGET})
+    public void testCustomerAbleToAddItemToCartFromAlternativeWidget() throws Exception {
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.getDetailPageAboveTheFold().clickSeeSimilarItemsButton();
+        detailPage.getDetailPageAboveTheFold().clickAddToCartButtonInsideExportAlternativeWidget();
+        CartHelper.goToCartPage(driver,url);
+        final CartPage cartPage = new CartPage(driver);
+        cartPage.verifyCurrentPage();
+    }
+
+    @Test(description = "C232391, "
+            + "Verify After click “View Similar Item” button, a modal pop-up with EAW will show in desktop/tablet " +
+            "and a bottom sheet pop-up with EAW will show in mobile web/device",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.EXPORT_ALTERNATIVE_WIDGET})
+    public void testClickingSeeSimilarItem() throws Exception {
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.getDetailPageAboveTheFold().clickSeeSimilarItemsButton();
+        String exportableCountryName = exportableCountry.getCountryDisplayName();
+        //Country Display Name for Korea is manually passed as "South Korea" instead of "Republic of Korea"
+        if (exportableCountry == Country.KR) {
+            exportableCountryName = "South Korea";
+        }
+        detailPage.getDetailPageAboveTheFold().verifySimilarItemsPopoverHeading(exportableCountryName);
+    }
+
+    @Test(description = "C240839, "
+            + "Verify user able to Add Item to Cart from the EAW",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.EXPORT_ALTERNATIVE_WIDGET})
+    public void testAddToCartFromEAWPage() {
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.getDetailPageAboveTheFold().verifySeeSimilarItemsButtonPresent();
+        String asinAddedToCartFromEAW = detailPage.getDetailPageAboveTheFold().getAsinValueFromEAW();
+        detailPage.getDetailPageAboveTheFold().clickSeeSimilarItemsButton();
+        detailPage.getDetailPageAboveTheFold().clickAddToCartButtonInsideExportAlternativeWidget();
+        CartHelper.goToCartPage(driver, url);
+        final CartPage cartPage = new CartPage(driver);
+        Assert.assertEquals(asinAddedToCartFromEAW, cartPage.getAsinValue(),"Item added from EAW is not found in cart page");
+    }
+}
