@@ -1,0 +1,55 @@
+package com.amazon.aeeqa.ui.tests.countryexpansion;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
+/**
+ * Marketplace & Language pairs for mShop.
+ * 
+ * TODO: It can be in a common package.
+ *
+ * @author tingyong
+ */
+@AllArgsConstructor
+public enum MShopMarketplaceAndLanguage {
+
+    // Format: countryCode, languageCode, localizedCountryName, localizedLanguageName
+    GERMANY_EN("DE", "en", "Germany", "German"),
+    GERMANY_DE("DE", "de", "Deutschland", "Deutsch"),
+    USA_EN("US", "en", "United States", "Dutch"),
+    USA_DE("US", "de", "USA", "Englisch"),
+    SWEDEN_EN("SE", "en", "Sweden", "Swedish"),
+    SWEDEN_SV("SE", "sv", "Sverige", "Svenska"),
+    USA_SV("US", "sv", "USA", "English"),
+    POLAND_EN("PL", "en", "Poland", "Polski"),
+    POLAND_PL("PL", "pl", "Polska", "Polski"),
+    USA_PL("US", "pl", "Stany Zjednoczone", "English"),
+    EGYPT_EN("EG", "en", "Egypt", "English"),
+    BELGIUM_FR("BE", "fr", "Belgique", "français"),
+    BELGIUM_EN("BE", "en", "Belgium", "English"),
+    BELGIUM_NL("BE", "nl", "België", "Nederlands"),
+    SOUTHAFRICA_EN("ZA", "en", "South Africa", "English"),
+    SINGAPORE_EN("SG", "en", "Singapore", "English"),
+    AUSTRALIA_EN("AU", "en", "Australia", "English"),
+    IRELAND_EN("IE", "en", "Ireland", "English");
+
+    @Getter
+    private String countryCode;
+    @Getter
+    private String languageCode;
+    @Getter
+    private String localizedCountryName;
+    @Getter
+    private String localizedLanguageName;
+
+    public static MShopMarketplaceAndLanguage getMarketplaceAndLanguage(final String countryCode,
+            final String languageCode) {
+        for (MShopMarketplaceAndLanguage ml : MShopMarketplaceAndLanguage.values()) {
+            if (ml.getCountryCode().equals(countryCode) && ml.getLanguageCode().equals(languageCode)) {
+                return ml;
+            }
+        }
+        return null;
+    }
+
+}
