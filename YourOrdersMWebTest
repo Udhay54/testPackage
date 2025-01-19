@@ -1,0 +1,349 @@
+package com.amazon.aeeqa.ui.tests.countryexpansion;
+
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.CountryExpansionBaseUITest;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestAccount;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.*;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+import com.amazon.aeeqa.ui.pagemodels.globalnav.GlobalNavPage;
+import com.amazon.aeeqa.ui.pagemodels.mobileweb.GlobalNavPageMobileWeb;
+import com.amazon.aeeqa.ui.pagemodels.mobileweb.OrderDetailsPageMobileWeb.OrderDetails;
+import com.amazon.aeeqa.ui.pagemodels.mobileweb.YourOrdersPageMobileWeb;
+import com.amazon.aeeqa.ui.pagemodels.youraccount.YourAccountPage;
+import com.amazon.aeeqa.ui.pagemodels.yourorders.YourOrdersPage;
+import com.amazon.aeeqa.utils.SleepUtil;
+import com.amazon.dtk.type.CountryCode;
+import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
+import org.testng.Assert;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+
+import java.lang.reflect.InvocationTargetException;
+import java.time.Year;
+import java.util.*;
+
+/**
+ * Country Expansion Mobile Web Your Orders tests.
+ *
+ * @author vllaks
+ */
+public class YourOrdersMWebTest extends CountryExpansionBaseUITest {
+
+    // Manual placed orders test account (for verifying Order Details, Invoice, etc.)
+    private final TestDTO MANUAL_YOUR_ORDERS_ACCOUNT = TestDTO.builder().testAccount(TestAccount.builder()
+            .username("aeeqa-countryexpansion+" + COUNTRY_CODE + "-YO-Manual@amazon.com")
+            .password(HARDCODE_ACCOUNT_PASSWORD)
+            .build()).build();
+    // Manual Placed orders test account with more than 5 Delivered Status
+    private final TestDTO MANUAL_YOUR_ORDERS_ACCOUNT_MORE_5_ORDERS = TestDTO.builder().testAccount(TestAccount.builder()
+            .username("aeeqa-countryexpansion+" + COUNTRY_CODE + "-YO-Manual-Delivered5more@amazon.com")
+            .password(HARDCODE_ACCOUNT_PASSWORD)
+            .build()).build();
+    // Manual Placed orders test account with less than 5 Delivered Status
+    private final TestDTO MANUAL_YOUR_ORDERS_ACCOUNT_LESS_5_ORDERS = TestDTO.builder().testAccount(TestAccount.builder()
+            .username("aeeqa-countryexpansion+" + COUNTRY_CODE + "-YO-Manual-Delivered5Less@amazon.com")
+            .password(HARDCODE_ACCOUNT_PASSWORD)
+            .build()).build();
+    // Manual placed orders test account (for verifying Order Details, Invoice, etc.)
+    private final TestDTO MANUAL_YOUR_ORDERS_ACCOUNT_WITH_MULTIPLE_QTY = TestDTO.builder().testAccount(TestAccount.builder()
+            .username("aeeqa-countryexpansion+" + COUNTRY_CODE + "-YO-Manual-multipleqty@amazon.com")
+            .password(HARDCODE_ACCOUNT_PASSWORD)
+            .build()).build();
+    //The item qty should always be 2 for the above MANUAL_YOUR_ORDERS_ACCOUNT_WITH_MULTIPLE_QTY orders placed.
+    private final String ORDER_QTY = "2";
+
+    @Test(description = "C150114, Verify 'Order Info' section of the order details page should contain 'View order details' link.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    // Skip for launched country, but still test for in progress country.
+    @MethodSelector(exclude = {"SE"})
+    public void testViewOrderDetailsInMobileWeb() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.clickViewOrderDetailsLinkFromTrackShipment();
+        Assert.assertEquals(driver.getTitle(), lmsHelper.getTextForStringId("aa_css_order_details"),
+                "Page title not expected for view order details page.");
+    }
+
+    @Test(description = "C150117, Verify that 'Filter' link is present at the top right corner of the YO page.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testFilterLinkInMobileWeb() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        Assert.assertTrue(yourOrdersPageMobileWeb.isFilterButtonPresent(),
+                "The 'Filter' link/button not found in Your Orders Page.");
+    }
+
+    @Test(description = "C150120, Verify that Orders, Open Orders, Cancelled Orders options are displayed "
+            + "under 'Order type' section in the filter selection page",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testOrderTypesInFilterInMobileWeb() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.verifyFilterTypesPresent(new String[]{
+                // stringIds of "Orders", "Open orders", "Cancelled orders"
+                lmsHelper.getTextForStringId("yo-orders-label"),
+                lmsHelper.getTextForStringId("ya-open-orders"),
+                lmsHelper.getTextForStringId("ya-cancelled-text")
+        });
+    }
+
+    @Test(description = "C150126, [Search Orders] Verify that \"Search all orders\" "
+            + "link with search symbol is present at the top left corner of the YO page",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testSearchAllOrdersLinkAndIconPresentInMobileWeb() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.verifySearchAllOrdersLinkAndIconPresent();
+    }
+
+    @Test(description = "C150127, [Search Orders] Verify that clicking the \"Search all orders\" "
+            + "link should open the search bar",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testSearchInputPresentInMobileWeb() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.clickShowSearchBarLink();
+        Assert.assertTrue(yourOrdersPageMobileWeb.isSearchBarInputPresent(), "Search input not present.");
+    }
+
+    @Test(description = "C150129, [Search Orders] Verify that clicking the \"Search all orders\" "
+            + "link again should close the opened search bar",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testSearchInputOpenAndCloseInMobileWeb() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.clickShowSearchBarLink();
+        Assert.assertTrue(yourOrdersPageMobileWeb.isSearchBarInputPresent(), "Search input not present.");
+        yourOrdersPageMobileWeb.clickShowSearchBarLink();
+        // Didn't see a better way than sleeping here to check the result
+        SleepUtil.sleep(2000);
+        Assert.assertTrue(yourOrdersPageMobileWeb.getSearchFormStyle().contains("display: none"), "Search form not hidden.");
+    }
+
+    @Test(description = "C150130, [Search Orders] Verify that customer can search by "
+            + "product title, order number, department, address or recipient",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testSearchOrderInMobileWeb() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.clickOrderBlockByIndex(0);
+        OrderDetails orderDetails = yourOrdersPageMobileWeb.getOrderDetails();
+        boolean isSearchBoxAlreadyAvailable = !yourOrdersPageMobileWeb.getSearchFormStyle().contains("display: none");
+        if (!isSearchBoxAlreadyAvailable) {
+            yourOrdersPageMobileWeb.clickShowSearchBarLink();
+            SleepUtil.sleep(2000);
+        }
+        SoftAssert softAssert = new SoftAssert();
+        // Search by product title
+        yourOrdersPageMobileWeb.searchOrders(orderDetails.getProductTitle());
+        softAssert.assertTrue(StringUtils.isNotBlank(yourOrdersPageMobileWeb.getSearchResultText()),
+                "Search by product title - no result text");
+        softAssert.assertTrue(yourOrdersPageMobileWeb.getSearchResultOrdersCount() > 0,
+                "Search by product title - no orders found");
+        // Early ending in case of incorrect screenshot taken
+        softAssert.assertAll();
+        // Search by order number
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        yourOrdersPageMobileWeb.searchOrders(orderDetails.getOrderNumber());
+        // No search result text for searching by order number
+        softAssert.assertTrue(yourOrdersPageMobileWeb.getSearchResultOrdersCount() > 0,
+                "Search by order number - no orders found");
+        softAssert.assertAll();
+        // Search by shipping address
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        yourOrdersPageMobileWeb.searchOrders(orderDetails.getAddressLine1().split("[\\r\\n]+")[0]);
+        softAssert.assertTrue(StringUtils.isNotBlank(yourOrdersPageMobileWeb.getSearchResultText()),
+                "Search by shipping address - no result text");
+        softAssert.assertTrue(yourOrdersPageMobileWeb.getSearchResultOrdersCount() > 0,
+                "Search by shipping address - no orders found");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C150134, Verify that filter type applied is displayed in grey text at the top left corner of the YO page",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testApplyOrderFilterDisplayedInFilterInMobileWeb() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.applyOrderFilterByFilterType(lmsHelper.getTextForStringId("ya-cancelled-text"));
+        yourOrdersPageMobileWeb.verifyFilterSubTextPresent(lmsHelper.getTextForStringId("ya-cancelled-text"));
+    }
+
+    @Test(description = "C150124, Verify that \"Time filter\" section get disappeared when selecting \"Open orders\" " +
+            "and \"Cancelled Orders\" option in the filter selection page",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testFilterMessagePresentWhenSelectingOrderType() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.clickOrderFilterButton();
+        yourOrdersPageMobileWeb.verifyFilterMessagePresentForSelectedOrderFilter(lmsHelper.getTextForStringId("ya-cancelled-text"));
+        yourOrdersPageMobileWeb.verifyFilterMessagePresentForSelectedOrderFilter(lmsHelper.getTextForStringId("ya-open-orders"));
+    }
+
+    @Test(description = "C150119, Verify that Order type section and Time filter section are displayed in the filter selection page",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testFilterLinkInYourOrdersPage() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+
+        yourOrdersPageMobileWeb.verifyOrderFilterAndTimeFilterPresentInOrderFilterSection(new String[]{
+                // stringIds of "Orders", "Open orders", "Cancelled orders"
+                lmsHelper.getTextForStringId("yo-orders-label"),
+                lmsHelper.getTextForStringId("ya-open-orders"),
+                lmsHelper.getTextForStringId("ya-cancelled-text")
+        }, new String[] {
+                // stringIds of "Last 30 days", "Last 6 months", "current year"
+                lmsHelper.getTextForStringId("yo-past-30"),
+                lmsHelper.getTextForStringId("yo-past-6-months"),
+                Integer.toString(Calendar.getInstance().get(Calendar.YEAR))
+        });
+    }
+
+    @Test(description = "C150122, Verify that \"orders\" option under Order type section and \"Last 6 months\" " +
+            "option under Time filter section are selected as default filter option",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testOrdersAndLast6MonthsSelectedAsDefaultInOrderFilterSection() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.clickOrderFilterButton();
+        yourOrdersPageMobileWeb.verifyTimeFilterRadioButtonChecked(lmsHelper.getTextForStringId("yo-past-6-months"));
+        yourOrdersPageMobileWeb.verifyFilterOrderTypeRadioButtonChecked(lmsHelper.getTextForStringId("yo-orders-label"));
+    }
+
+    @Test(description = "C150123, Verify that \"Time filter will not apply to Open or Cancelled orders\" " +
+            "message is displayed at the bottom of the filter selection page",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testFilterMessagePresentWithoutSelectingFilterType() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.clickOrderFilterButton();
+        yourOrdersPageMobileWeb.verifyFilterMessagePresent();
+    }
+
+    @Test(description = "C179783, Verify write a product review button is present for all delivered order",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testWriteAProductReviewLinkPresentOnYourOrdersPage() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT_LESS_5_ORDERS);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.verifyWriteProductReviewLinkIsPresentAndClickable();
+    }
+
+    @Test(description = "C150111, Verify clicking the orders in the YO page redirects to the progress tracker page " +
+            "if there is more than 5 orders",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testSelectingOrderLinkNavigateToTrackPackagePageForAccountHavingMoreThan5Orders() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT_MORE_5_ORDERS);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        String[] staticTextInLmsString = removeDateContentFromLmsString(lmsHelper.getTextForStringId("yo-delivered-with-date"));
+        yourOrdersPageMobileWeb.clickOrderLinkToNavigateToTrackPackage(staticTextInLmsString[0]);
+        yourOrdersPageMobileWeb.verifyTrackPackageViewOrderDetailsLinkPresent();
+    }
+
+    @Test(description = "C150132, [Pagination] Pagination should not be displayed in the YO page for mobile view",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testPaginationOptionNotPresentInYourOrdersPageMobileView() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT_MORE_5_ORDERS);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final GlobalNavPageMobileWeb globalNavPageMobileWeb = new GlobalNavPageMobileWeb(driver);
+        globalNavPageMobileWeb.scrollBottomOfPage();
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.verifyPaginationAbsent();
+    }
+
+    @Test(description = "C150113, Verify \"How's your item?\" section of the order details page contain \"Write a product review\" link",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testSubHeadingAndLinkPresentForDeliveredOrdersInTrackingPackagePage() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT_MORE_5_ORDERS);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        String[] staticTextInLmsString = removeDateContentFromLmsString(lmsHelper.getTextForStringId("yo-delivered-with-date"));
+        String reviewYourPurchaseLinkName = "review-your-purchase";
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.clickOrderLinkToNavigateToTrackPackage(staticTextInLmsString[0]);
+        yourOrdersPageMobileWeb.verifySubHeadingTextInTrackPackagePresent(lmsHelper.getTextForStringId("yo-hows-your-item"));
+        yourOrdersPageMobileWeb.clickWriteProductReviewLinkInTrackPackage(reviewYourPurchaseLinkName);
+        Assert.assertTrue(driver.getCurrentUrl().contains(reviewYourPurchaseLinkName), "Page is not navigating to the write your review when " +
+                "clicking write a product review link from Track Package page");
+    }
+
+    @Test(description = "C150115, [Delivered Order] - Verify that ordered date and return window message is displayed in the " +
+            "\"View order details\" link of \"Order Info\" section for return eligible orders",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testReturnWindowMessagePresentForDeliveredOrderInTrackingPackagePage() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT_MORE_5_ORDERS);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        String[] staticTextInLmsString = removeDateContentFromLmsString(lmsHelper.getTextForStringId("yo-delivered-with-date"));
+        String[] staticReturnWindowTextInLmsString = removeDateContentFromLmsString(lmsHelper.getTextForStringId("yo-return-window-closed-on-date"));
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.clickOrderLinkToNavigateToTrackPackage(staticTextInLmsString[0]);
+        yourOrdersPageMobileWeb.verifyOrderInfoTextPresent(lmsHelper.getTextForStringId("yo-order-info"), staticReturnWindowTextInLmsString[0]);
+    }
+
+    @Test(description = "C150116, Verify that ordered date is displayed with \"Ordered on\" label in Order Info section",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testDeliveredInfoPresentForDeliveredOrderInTrackingPackagePage() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT_MORE_5_ORDERS);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        String[] deliveredDateTextInLmsString = removeDateContentFromLmsString(lmsHelper.getTextForStringId("yo-delivered-with-date"));
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.clickOrderLinkToNavigateToTrackPackage(deliveredDateTextInLmsString[0]);
+        //Here we are verifying the Delivered date so its the same string that used for deliveredDateTextInLmsString
+        yourOrdersPageMobileWeb.verifyOrderInfoTextPresent(lmsHelper.getTextForStringId("yo-order-info"), deliveredDateTextInLmsString[0]);
+    }
+
+    @Test(description = "C163165, Verify item name and item image is displayed in the Your Orders Page",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testItemNameAndImageDisplayForOrdersInYourOrdersPage() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.verifyAndClickItemImagePresent();
+        yourOrdersPageMobileWeb.verifyTrackPackageItemNameAndImagePresent();
+    }
+
+    @Test(description = "C164200, [Order Detail page] Verify quantity of the item ordered is mentioned below the title",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testItemQuantityPresentInYourOrdersPageAndTrackPackage() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT_WITH_MULTIPLE_QTY);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.verifyYourOrdersItemQuantityPresent(ORDER_QTY);
+        yourOrdersPageMobileWeb.verifyAndClickItemImagePresent();
+        yourOrdersPageMobileWeb.verifyTrackPackageItemQuantityPresent(ORDER_QTY);
+    }
+
+    @Test(description = "C150133, Verify that loading spinner symbol is displayed at the bottom of the " +
+            "YO page when scrolling the page to see more orders",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION, FeatureGroups.YOUR_ORDERS, FeatureGroups.MOBILE_WEB})
+    public void testLoadingSpinnerPresent() {
+        SignInAndOutHelper.signInMobileWeb(driver, MANUAL_YOUR_ORDERS_ACCOUNT_MORE_5_ORDERS);
+        YourOrdersHelper.goToYourOrdersPage(driver, url);
+        final GlobalNavPageMobileWeb globalNavPageMobileWeb = new GlobalNavPageMobileWeb(driver);
+        globalNavPageMobileWeb.scrollBottomOfPage();
+        final YourOrdersPageMobileWeb yourOrdersPageMobileWeb = new YourOrdersPageMobileWeb(driver);
+        yourOrdersPageMobileWeb.verifyLoadingSpinnerPresent();
+    }
+
+    private String[] removeDateContentFromLmsString(String lmsString){
+        //removing date variable '${hash-get Date}' from lmsString.
+        // returning static text in array since date variable present in between the text for some languages.
+        return lmsString.replaceAll("\\$.*\\}","").split("\\s+");
+    }
+
+}
