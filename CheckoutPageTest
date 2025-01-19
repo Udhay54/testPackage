@@ -1,0 +1,361 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.locale.ImportFeesStrings;
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.common.Country;
+import com.amazon.aeeqa.ui.common.WeblabConstants;
+import com.amazon.aeeqa.ui.helper.*;
+import org.apache.commons.lang3.StringUtils;
+import org.testng.Assert;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.dataprovider.AISDataProvider;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.pagemodels.checkout.CheckoutPage;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+
+import java.util.List;
+
+/**
+ * Test cases to verify Checkout page in Amazon International Shopping mode
+ *
+ * @author mehalaak
+ */
+public class CheckoutPageTest extends AISBaseUITest {
+
+    @AfterMethod(alwaysRun = true)
+    public void afterCheckoutTestClearCart() {
+        // Run only once and ignore any exception if happened
+        runOnceAndIgnoreAllException("AISCheckoutClearCart", () -> {
+            CartHelper.clearItemsInCart(driver);
+            return true;
+        });
+    }
+
+    @Test(description = "C65134, " +
+            "Verify Exports T&C messaging is present and link is clickkable and Exports T&C link should take user to export terms page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT, FeatureGroups.RUN_PIPELINE, FeatureGroups.RUN_CHECKOUT_PARTNER_PIPELINE},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testExportsTermsAndConditionsMessage(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        checkoutPage.verifyExportsTermsAndConditionsMessagePresent();
+        checkoutPage.verifyExportsTermsAndConditionsLinkPresent();
+        checkoutPage.clickExportsTermsAndConditionsLink();
+        AISCheckoutHelper.validateHelpContentPageIsDisplayed("International Shipping Terms & Conditions", sourceCountryCode, driver);
+    }
+
+    //Amazon Global Terms and conditions link differs in AU MP
+    @MethodSelector(exclude = {"AU"})
+    @Test(description = "C65321, "
+            + "Verify Amazon Global T&C link should be present in Order summary & link should be clickable",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testAmazonGlobalTermsAndConditionsMessageInOrderSummary(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        checkoutPage.verifyAmazonGlobalTermsAndConditionsLinkPresent();
+        checkoutPage.clickAmazonGlobalTermsAndConditionsLink();
+        AISCheckoutHelper.validateHelpContentPageIsDisplayed("International Shipping Terms & Conditions", sourceCountryCode, driver);
+    }
+
+    //TODO: IFD logic works different, this case needs to be revisited in future for new AIS MPs
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    @Test(description = "C65137, "
+            + "Verify user should see IFD line item for IFD eligible product on order summary and Verify 'Import Fee deposit' is a Link and clickable",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT, FeatureGroups.RUN_CHECKOUT_PARTNER_PIPELINE},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testImportFeeDepositLinkInOrderSummaryInCheckout(final TestDTO testDTO) {
+        LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+        driver.navigate().refresh();
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        //Adding this check to verify if AIS mode has been entered
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+        DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        detailPage.verifyTotalLandedCostDetailsLinkPresentAndClickable();
+        detailPage.clickTotalLandedCostDetails();
+        final String importFeesDepositPrice = detailPage.getTotalLandedCostDetailsContentPriceByCell(ImportFeesStrings.getTlcPopoverIfdString(exportableCountry))
+                .replaceAll("[^0-9.]", "");
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        if (Double.valueOf(importFeesDepositPrice) <= 0) {
+            checkoutPage.isImportFeeDepositLinkAbsent(ImportFeesStrings.getCheckoutIfdString(exportableCountry));
+        } else {
+            checkoutPage.isImportFeeDepositLinkPresent(ImportFeesStrings.getCheckoutIfdString(exportableCountry));
+            checkoutPage.clickImportFeeDepositLink(ImportFeesStrings.getCheckoutIfdString(exportableCountry));
+            String importFeesHelpPageTitle = HelpPageHelper.validateHelpPageContent(driver);
+            Assert.assertTrue(importFeesHelpPageTitle.contains(ImportFeesStrings.getCheckoutIfdString(exportableCountry).replaceAll("[^a-zA-Z ]", ""))
+                    , String.format("The help page opened did not displayed the text correct Expected[%s] to be part of Found[%s] title"
+                    , ImportFeesStrings.getCheckoutIfdString(exportableCountry).replaceAll("[^a-zA-Z ]", "")
+                    , importFeesHelpPageTitle));
+        }
+    }
+
+    @Test(description = "C65133, "
+            + "Verify AIS user should not see Prime Upsell Page during checkout",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testPrimeUpsellAreaInShipOptionsPageAbsent(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_PSP, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        checkoutPage.verifyPrimeUpsellAreaInShipOptionsPageAbsent();
+    }
+
+    @Test(description = "C243610, "
+            + "Verify International customers should not see prime eligibility messaging on ASINS to be ordered on SPC page [non prime account]",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testPrimeEligibleMessageAbsentInCheckoutPage(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        checkoutPage.verifyPrimeEligibilityMessageUnderReviewItemsAndDeliveryAbsent();
+    }
+
+    @Test(description = "C65143, "
+            + "Verify AIS user should not see Amazon.com store card promotion in payment option page",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testPromotionContainerInPaymentPageAbsent(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_PSP, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        checkoutPage.getSospPage().continueToPayment();
+        checkoutPage.getPaymentSelectionPage().verifyPromotionContainerInPaymentPageAbsent();
+    }
+
+    @Test(description = "C65136, "
+            + "Verify users should not see Prime upsell link on Review your order page",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testPrimeUpsellAreaInReviewYourOrderPageAbsent(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        checkoutPage.verifyPrimeUpsellAreaInReviewYourOrderPageAbsent();
+    }
+
+    @Test(description = "C232351, "
+            + "Verify AIS customers should not see \"Or Ship to an Amazon Pickup Location\" message on top",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testOrShipToAnAmazonPickupLocationIsAbsent(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        checkoutPage.clickChangeShippingAddressLink();
+        Assert.assertFalse(checkoutPage.getAddressSelectionPage().isSearchAmazonPickUpPointLinkPresent(), "Search for an Amazon Pick Up Location is present on top of SASP page in AIS mode");
+    }
+
+    @Test(description = "C232352, "
+            + "Verify AIS customers should not see \"Search for an Amazon Pick Up Location\" section next to \"Add a new Address\" section",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testSearchForAnAmazonPickupLocationIsAbsent(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_ASP, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        Assert.assertFalse(checkoutPage.getAddressSelectionPage().isSearchForAmazonPickUpNextToAddNewAddressPresent(), "Search for an Amazon Pick Up Location is present next to Add a new Address section in AIS mode");
+    }
+
+    @Test(description = "C281724, "
+            + "Verify International customers should not see \"Amazon Pickup Location\" messages in SPC page below \"Shipping Address\" section",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testAmazonPickupLocationInCheckoutPageIsAbsent(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        Assert.assertFalse(checkoutPage.isAmazonPickUpNextToShippingAddressPresent(), "Amazon Pick Up Location is present next to Shipping Address section in AIS mode");
+    }
+
+    @Test(description = "C243616, "
+            + "Verify AIS user should not see Prime Upsell Page during checkout",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testPrimeSignUpIsAbsentInCheckout(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_PSP, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        checkoutPage.getPaymentSelectionPage().paymentConfirmCardIfNeeded();
+        checkoutPage.getSospPage().continueToPayment();
+        Assert.assertFalse(checkoutPage.getPaymentSelectionPage().isPrimeSignupPagePresent(),"Amazon Prime signup transition page displayed during transition from Payment to SPC Page.");
+        Assert.assertFalse(driver.getCurrentUrl().contains("prime")  && !driver.getTitle().contains("404"), "Clicking on continue payment button leads to prime signup page for international customers");
+    }
+
+    @Test(description = "C281312, "
+            + "[non prime account] Verify International customers should not see \"Amazon Rewards Visa Card\" or \"Amazon Store Card\" promotions in SPC",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testPromotionCardSuppressedInCheckoutPage(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        Assert.assertFalse(checkoutPage.isAmazonRewardsVisaOrStorePromotionCardPresent(), "Amazon Rewards visa or Store card promotion container is not suppressed in SPC page");
+    }
+
+    @Test(description = "C281719, "
+            + "[Prime Account] Verify International customers should not see \"Amazon Rewards Visa Card\" or \"Amazon Store Card\" promotions in SPC",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_PRIME_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testPromotionCardSuppressedInCheckoutPageForPrime(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        Assert.assertFalse(checkoutPage.isAmazonRewardsVisaOrStorePromotionCardPresent(), "Amazon Rewards visa or Store card promotion container is not suppressed in SPC page for prime account");
+    }
+
+    @Test(description = "C243609, "
+            + "Verify International customers should not see prime badge on ASINS to be ordered on SPC page [prime account]",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_PRIME_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testPrimeBadgeAbsentInCheckoutPage(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        checkoutPage.verifyPrimeBadgeUnderReviewItemsAndDeliverySectionInSPCAbsent();
+    }
+
+    @Test(description = "C282659, "
+            + "Verify all line items under Order Summary in SPC page are displayed in the *Payment card* currency when ACCB card is selected with a particular currency",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN_AND_ACCB_PAYMENT,
+            dataProviderClass = AISDataProvider.class)
+    public void testACCBCurrencyInCheckoutPage(TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_PSP, exportableCountry.getCountryDisplayName(), true, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        String currencyOfACCBCard = checkoutPage.getPaymentSelectionPage().getACCBDefaultSelectedCurrencyText();
+        checkoutPage.getPaymentSelectionPage().continueToPlaceOrder();
+        SoftAssert softAssert = new SoftAssert();
+        List<String> orderSummaryLineItems = checkoutPage.getAllSpcOrderSummaryLineItemsWithGrandTotal();
+        softAssert.assertTrue(orderSummaryLineItems.stream().anyMatch(messageLineItem -> messageLineItem.contains(currencyOfACCBCard))
+                , "ACCB currency is not reflected in the price of Order Summary line items");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C277234, "
+            + "Verify International customers able to view and select non default currency in “My Card is in a different currency“ option for an ACCB card in Payment Page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN_AND_ACCB_PAYMENT,
+            dataProviderClass = AISDataProvider.class)
+    public void testACCBCurrencyOptionsInPaymentPage(TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_PSP, exportableCountry.getCountryDisplayName(), true, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        checkoutPage.getPaymentSelectionPage().clickACCBChangeCardCurrencyOption();
+        checkoutPage.getPaymentSelectionPage().clickACCBDifferentCurrencyOption();
+        checkoutPage.getPaymentSelectionPage().clickACCBCurrencyDropdown();
+        String selectedCurrencyOfACCBcard = StringUtils.substringAfter(checkoutPage.getPaymentSelectionPage().getSelectedRandomCurrencyFromCurrencyPreferenceDropdownForACCBCard(sourceCountryCode), "(")
+                .replaceAll("[^a-zA-Z ]", "");
+        checkoutPage.getPaymentSelectionPage().continueToPlaceOrder();
+        Assert.assertTrue(checkoutPage.getACCBSelectedCurrencyText().contains(selectedCurrencyOfACCBcard)
+                , String.format("The chosen ACCB currency %s in payment page is not reflected in SPC page in 'Amazon Currency Converter' section under 'Order Summary' section", selectedCurrencyOfACCBcard));
+    }
+
+    @Test(description = "C276800, "
+            + "Verify International customers should continue to see export eligibility error page that exists today during checkout when a customer has export ineligible ASIN in their cart",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT})
+    public void testExportIneligibilityErrorInCheckoutPage() {
+        Country initialExportableCountry = null;
+        try {
+            //Overriding exportableCountry a least visited country in AIS to get in-eligibility message and storing the original exportable country in a new variable as sometimes ASIN check fails due to reinitalization
+            initialExportableCountry = exportableCountry;
+            if (COUNTRY_CODE.equals("US")) {
+                //Overriding to a least visited country in AIS to get in-eligibility message.
+                exportableCountry = Country.GG;
+            } else if (COUNTRY_CODE.equals("JP")) {
+                //Overriding to a least visited country in AIS to get in-eligibility message.
+                exportableCountry = Country.NG;
+            }
+            productGroupType = "gl_pc";
+            testDTORequest = buildTestDTORequest(buildTestAsinRequest(getAisHardCodeASIN("aisIneligibleAsin")), buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+            testDTO = generateTestDTO(testDTORequest);
+            SignInAndOutHelper.signIn(driver, testDTO, url);
+            LocationHelper.changeLocationBackToDefaultLocationIfNeeded(driver);
+            driver.navigate().refresh();
+            DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+            DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+            DetailPage detailPage = new DetailPage(driver);
+            String offerListingValue = detailPage.getOfferListingValue();
+            CartHelper.addItemsToCart(driver, testDTO.getTestASIN().getAsin(), offerListingValue);
+            AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.CART_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_PSP, exportableCountry.getCountryDisplayName(), false, false);
+            CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+            checkoutPage.getAddressSelectionPage().verifyUndeliverableAlertTextPresent();
+            Assert.assertTrue(checkoutPage.getAddressSelectionPage().getUndeliverableAlertTextUnderAddressDropdownText().contains(lmsHelper.getTextForStringId("item_cant_ship_to_address_68950").replaceAll("\\$\\{hash-get title\\}","")),
+                    "Undeliverable message is not shown under address dropdown in ASP");
+        } finally {
+            //Rest of the tests are failing in the suite as exportableCountry is overriden to GG. Hence, switching back to the original export country chosen in AISBaseUI
+            exportableCountry = initialExportableCountry;
+        }
+    }
+
+    @Test(description = "C281723, "
+            + "Verify International customers should be able to place order using gift wrap functionality",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT})
+    public void testGiftWrapFunctionalityInSPC() {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getBasicAisAsinWithGiftWrapEligible()), buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        //Add Gift wrap is given as false in buildAISCheckoutWorkflowRequest() as we want to test adding gift wrap at SPC and not during the steps taken for checkout workflow
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        checkoutPage.verifyIfGiftWrapInReviewYourOrderPageSPCDisplayed("AddGiftOptions");
+        SoftAssert softAssert = new SoftAssert();
+        //Some ASINs do not have gift wrap. So if gift wrap is present, we are adding gift wrap and verifying "Gift Wrap" line item under order summary
+        if (checkoutPage.isGiftWrapOptionInGiftPopUpInSPCPresent("AddGiftOptions")) {
+            checkoutPage.addGiftWrapInReviewYourOrderPageSPC("AddGiftOptions");
+            String giftWrapString = lmsHelper.getTextForStringId("acp-subtotals-gift-wrap").replaceAll("&nbsp;:", "");
+            String giftWrapPriceValue[] = checkoutPage.getOrderSummaryContentPriceByCell(giftWrapString).trim().split(":");
+            if (giftWrapPriceValue.length < 1) {
+                throw new IllegalArgumentException("Price lenght is expected to be greater than 1 but it is " + giftWrapPriceValue.length);
+            }
+            softAssert.assertTrue(checkoutPage.isOrderSummaryContentPriceByCellPresent(giftWrapString), "Gift wrap line item not shown in Order summary. Maybe gift wrap addition was not successful");
+            softAssert.assertFalse(giftWrapPriceValue[1].isEmpty(), String.format("Gift wrap Price is not displaying in the Order Summary %s", giftWrapPriceValue[1]));
+        } else {
+            //When gift wrap is not present, we are clicking on "AddGiftOptions" in SPC and default gift message gets added and we verify if that message is displayed.
+            checkoutPage.clickGiftWrapOptionsInReviewYourOrderPageSPC("AddGiftOptions");
+            checkoutPage.clickSpcGiftOptionSaveButton();
+            softAssert.assertFalse(checkoutPage.getTheReviewSelectedGiftOptionsMessage().isEmpty(), "Default gift message added is not showing up");
+        }
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C281313, "
+            + "[non prime account] Verify International customers should not see \"Amazon Rewards Visa Card\" or \"Amazon Store Card\" promotion banner in payment selection page",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testPromotionCardSuppressedInPaymentPage(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_PSP, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        Assert.assertFalse(checkoutPage.getPaymentSelectionPage().isAmazonRewardsVisaOrStorePromotionCardPresent(), "Amazon Rewards visa or Store card promotion container is not suppressed in Payment page");
+    }
+
+    @Test(description = "C284492, "
+            + "[Prime Account] Verify International customers should not see \"Amazon Prime Rewards Visa Card\" or \"Amazon Store Card\" promotion banner in payment selection page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT},
+            dataProvider = AISDataProvider.AIS_PRIME_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testPromotionCardSuppressedInPaymentPageForPrime(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_PSP, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        Assert.assertFalse(checkoutPage.getPaymentSelectionPage().isAmazonRewardsVisaOrStorePromotionCardPresent(), "Amazon Rewards Visa or Store card promotion container is not suppressed in payment selection pag page for prime account");
+    }
+
+    private CheckoutPage workflowToCheckoutPage (AISCheckoutHelper.RequestData wfRequest) {
+        addWeblabCookie(WeblabConstants.PAX_CHECKOUT_TANGO_DESKTOP_INTERNAL_825140 + " & " +
+                WeblabConstants.PAX_CHECKOUT_TANGO_DESKTOP_ELIGIBILITY_REMOVE_AJAX_ZERO_DEFAULTS_CHECK_965630);
+        CheckoutPage checkoutPage = new CheckoutPage(driver);
+        AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+        return checkoutPage;
+    }
+}
