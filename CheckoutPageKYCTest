@@ -1,0 +1,93 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.locale.checkout.CheckoutPageLocale;
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.common.WeblabConstants;
+import com.amazon.aeeqa.ui.dataprovider.AISDataProvider;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.AISCheckoutHelper;
+import com.amazon.aeeqa.ui.helper.CartHelper;
+import com.amazon.aeeqa.ui.pagemodels.checkout.CheckoutPage;
+import lombok.extern.slf4j.Slf4j;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+
+/**
+ * Test cases to verify Checkout KYC (Know Your Customer) Test Cases in Amazon International Shopping mode
+ *
+ * @author pavethr
+ */
+@Slf4j
+public class CheckoutPageKYCTest extends AISBaseUITest {
+    @AfterMethod(alwaysRun = true)
+    public void afterCheckoutTestClearCart() {
+        // Run only once and ignore any exception if happened
+        runOnceAndIgnoreAllException("AISCheckoutClearCart", () -> {
+            CartHelper.clearItemsInCart(driver);
+            return true;
+        });
+    }
+
+    @Test(description = "C297275, "
+            + "Verify KYC widget in checkout in an account where ID information is not added in any KYC flow before",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT, FeatureGroups.KYC, FeatureGroups.RUN_KYC_PARTNER_PIPELINE},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testNoKYCAddedBeforeBehaviourInCheckout(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_KYC, kycExportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(checkoutPage.getKYCWidgetPage().getKYCWidgetTitle().contains(CheckoutPageLocale.KYC_XBORDER_SHARED_ADD_ID_FOR_CUSTOMS_CLEARANCE.getI18NContent()),
+                String.format("Expected KYC title: [%s] was not shown correctly. Instead observed title: [%s]", CheckoutPageLocale.KYC_XBORDER_SHARED_ADD_ID_FOR_CUSTOMS_CLEARANCE.getI18NContent(), checkoutPage.getKYCWidgetPage().getKYCWidgetTitle()));
+        softAssert.assertTrue(checkoutPage.getKYCWidgetPage().getKYCSectionInfoBoxText().contains(CheckoutPageLocale.KYC_XBORDER_SHARED_CUSTOMS_REGULATION_OVERVIEW.getI18NContentWithCustomText(kycExportableCountry.getCountryDisplayName())),
+                String.format("Expected KYC title: [%s] was not shown correctly. Instead observed title: [%s]", CheckoutPageLocale.KYC_XBORDER_SHARED_CUSTOMS_REGULATION_OVERVIEW.getI18NContent(), checkoutPage.getKYCWidgetPage().getKYCSectionInfoBoxText()));
+        softAssert.assertTrue(checkoutPage.getKYCWidgetPage().getKYCSectionInfoBoxText().contains(kycExportableCountry.getCountryDisplayName())
+                , String.format("Address is missing in KYC widget. Expected string [%s], found string [%s]", kycExportableCountry.getCountryDisplayName(), checkoutPage.getKYCWidgetPage().getKYCSectionInfoBoxText()));
+        softAssert.assertTrue(checkoutPage.getKYCWidgetPage().isKYCAddNewIDButtonPresent(), "'Add new ID' button missing in KYC widget");
+        checkoutPage.getKYCWidgetPage().clickKYCSelectIDButton();
+        checkoutPage.getKYCWidgetPage().clickPassportOptionInID();
+        softAssert.assertTrue(checkoutPage.getKYCWidgetPage().isKYCPassportSectionPresent(), "Passport section after selecting 'Passport' option in 'Select ID' dropdown is missing in KYC widget");
+        //Instead of just checking presence for "skip now" button, clicking on it to end the test case till the final SPC page.
+        checkoutPage.getKYCWidgetPage().clickOnSkipKYCButton();
+        softAssert.assertTrue(checkoutPage.getKYCWidgetPage().isKYCRequiredAlertBannerInKYCSectionPresent(), "KYC required 'ID required for customs clearance' alert banner missing in KYC widget");
+        workflowToSPCPageFromKYCWidget();
+        softAssert.assertTrue(checkoutPage.getKYCWidgetPage().isKYCWidgetSectionPresentInSPCPage(), "KYC widget section missing after reaching the final SPC page.");
+        softAssert.assertAll();
+    }
+
+
+    @Test(description = "C300918, "
+            + "Verify Important Message Box / Alert Banner displayed when user selects \"Skip Now\" option inside KYC panel",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.CHECKOUT, FeatureGroups.KYC, FeatureGroups.RUN_KYC_PARTNER_PIPELINE},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class, enabled=false)
+    //TODO: Enable this test once the partner team issue resolved. https://issues.amazon.com/issues/D113181280
+    public void testAlertBannerWhenKYCSkippedInCheckout(final TestDTO testDTO) {
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_KYC, kycExportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = workflowToCheckoutPage(wfRequest);
+        SoftAssert softAssert = new SoftAssert();
+        checkoutPage.getKYCWidgetPage().clickOnSkipKYCButton();
+        softAssert.assertTrue(checkoutPage.getKYCWidgetPage().isKYCRequiredAlertBannerInKYCSectionPresent(), "KYC required 'ID required alert banner for customs clearance' missing in KYC widget");
+        workflowToSPCPageFromKYCWidget();
+        softAssert.assertTrue(checkoutPage.isKYCRequiredAlertBannerInSPCPresent(), "KYC required 'ID required alert banner for customs clearance' missing in 'Review Items and Shipping' Section'");
+        softAssert.assertAll();
+    }
+
+    private CheckoutPage workflowToCheckoutPage(AISCheckoutHelper.RequestData wfRequest) {
+        addWeblabCookie(WeblabConstants.PAX_CHECKOUT_TANGO_DESKTOP_INTERNAL_825140 + " & " +
+                WeblabConstants.PAX_CHECKOUT_TANGO_DESKTOP_ELIGIBILITY_REMOVE_AJAX_ZERO_DEFAULTS_CHECK_965630);
+        CheckoutPage checkoutPage = new CheckoutPage(driver);
+        AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+        return checkoutPage;
+    }
+
+    private void workflowToSPCPageFromKYCWidget() {
+        CheckoutPage checkoutPage = new CheckoutPage(driver);
+        checkoutPage.getKYCWidgetPage().clickContinueButtonInKYCWidget();
+        checkoutPage.getPaymentSelectionPage().paymentConfirmCardIfNeeded();
+        checkoutPage.getPaymentSelectionPage().continueToPlaceOrder();
+    }
+}
