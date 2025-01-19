@@ -1,0 +1,146 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.locale.smartwagon.SmartWagonPageLocale;
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.common.AISJumpinArcThreshold;
+import com.amazon.aeeqa.ui.common.Country;
+import com.amazon.aeeqa.ui.common.CurrencySymbol;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestASIN;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.request.TestDTORequest;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.CartHelper;
+import com.amazon.aeeqa.ui.helper.LocationHelper;
+import com.amazon.aeeqa.ui.helper.AISModeHelper;
+import com.amazon.aeeqa.ui.helper.DetailPageHelper;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+import com.amazon.aeeqa.ui.pagemodels.smartwagonPage.SmartWagonPage;
+import com.amazon.aeeqa.utils.SleepUtil;
+import org.openqa.selenium.WebDriver;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+
+/**
+ * Test cases to verify Smart Wagon page Jumpin features in Amazon International Shopping mode.
+ * @author kumarlll
+ */
+public class SmartWagonPageJumpinTest extends AISBaseUITest {
+
+    private static final String GROUP_JUMPIN_BELOW_THRESHOLD = "SmartWagonPageJumpin-BelowThreshold";
+    private static final String GROUP_JUMPIN_ABOVE_THRESHOLD = "SmartWagonPageJumpin-AboveThreshold";
+    Country initialExportableCountry = null;
+
+    @BeforeClass(alwaysRun = true)
+    public void setupJumpinValuesAndInitializeExportableCountryToJumpin() {
+        AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC = AISJumpinArcThreshold.valueOf(String.format("%s_%s", sourceCountryCode,
+                freeShippingExportableCountry.toString())).getAISJumpinArcThresholdValue();
+        /*Overriding exportableCountry to Jumpin country as testDTORequest in individual tests is designed with
+        exportableCountry variable input declared in AIS BaseUITest Storing the original exportable country in a new
+        variable to reinitalize back after the tests*/
+        initialExportableCountry = exportableCountry;
+        exportableCountry = freeShippingExportableCountry;
+    }
+
+    @AfterClass(alwaysRun = true)
+    public void reInitializeExportableCountry() {
+        /*Other classes' tests may fail if exportableCountry is overriden to freeShippingExportableCountry. Hence,
+        switching back to the original export country chosen in AISBaseUI*/
+        exportableCountry = initialExportableCountry;
+    }
+
+    @AfterMethod(alwaysRun = true)
+    public void afterCartJumpinTestClearCart() {
+        // Run only once and ignore any exception if happened
+        runOnceAndIgnoreAllException("AISSmartWagonJumpinClearCartAndSFL", () -> {
+            CartHelper.clearItemsInCart(driver);
+            CartHelper.deleteItemsInSavedForLater(driver, url);
+            return true;
+        });
+    }
+
+    @Test(description = "C303174, "
+            + "[Retail/FBA][Mixed cart - AT + ineligible][Recognized/Unrecognized]:Verify Customers should see FST " +
+            "progress bar and FST messaging for mixed cart items in Smart Wagon page above threshold amount",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.SMART_WAGON_PAGE,
+                    GROUP_JUMPIN_ABOVE_THRESHOLD, FeatureGroups.JUMPIN})
+    public void testFSTProgressBarAndMessageForJumpinIneligibleAndAboveThresholdAsins() {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getBasicIneligibleForAisFreeShippingAsin()),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountry.getCountryDisplayName(), url);
+        //Adding this check to verify if AIS mode has been entered
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, freeShippingExportableCountry.getCountryDisplayName());
+        final TestASIN jumpinIneligibleASIN = testDTO.getTestASIN();
+        //Overriding Product Group Type since for AT we use SDC config which are currently mapped only for gl_pc
+        productGroupType = "gl_pc";
+        final TestASIN jumpInAboveThresholdEligibleASIN = generateTestDTO(TestDTORequest.builder()
+                .asinRequest(buildTestAsinRequest(getJumpinHardCodeASIN("aisFreeShipping"))).build()).getTestASIN();
+        workflowToSmartWagonPage(testDTO, driver, jumpinIneligibleASIN, jumpInAboveThresholdEligibleASIN);
+        final String freeShippingAboveThresholdMessageLocalizedText = SmartWagonPageLocale.EFS_PARTIAL_FREE_SHIPPING_CART_BUYBOX_HUC_DEFAULT.getI18NContent();
+        SmartWagonPage smartWagonPage = new SmartWagonPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(smartWagonPage.isFreeShippingProgressBarPresent(), "Free Shipping Progress bar is not Present");
+                softAssert.assertEquals(smartWagonPage.getFreeShippingProgressBarPercentage(),"100", "Free Shipping Progress bar is not reached the threshold value");
+        softAssert.assertTrue(smartWagonPage.getFreeShippingMessageText().contains(freeShippingAboveThresholdMessageLocalizedText),
+                "Free shipping message is displayed incorrectly or not displayed for Jumpin Above Threshold ASIN in Smart Wagon Page : Actual Message - "
+                        + smartWagonPage.getFreeShippingMessageText() + ", Expected Message - " + freeShippingAboveThresholdMessageLocalizedText);
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C303172, "
+            + "Smart Wagon - [Retail/FBA][Mixed cart - BT + ineligible][Recognized/Unrecognized]:Verify Customers " +
+            "should see FST progress bar and FST messaging for mixed cart items in Smart Wagon page below threshold " +
+            "amount",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.SMART_WAGON_PAGE, GROUP_JUMPIN_BELOW_THRESHOLD, FeatureGroups.JUMPIN})
+    public void testFSTProgressBarAndMessageForJumpinIneligibleAndBelowThresholdAsins() {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                        getBasicIneligibleForAisFreeShippingAsin()),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountry.getCountryDisplayName(), url);
+        //Adding this check to verify if AIS mode has been entered
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, freeShippingExportableCountry.getCountryDisplayName());
+        final TestASIN jumpinIneligibleASIN = testDTO.getTestASIN();
+        final TestASIN jumpInBelowThresholdEligibleASIN = generateTestDTO(TestDTORequest.builder()
+                .asinRequest(buildTestAsinRequest(getAisEligibleForFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC))).build()).getTestASIN();
+        workflowToSmartWagonPage(testDTO, driver, jumpinIneligibleASIN, jumpInBelowThresholdEligibleASIN);
+        final String freeShippingBelowThresholdMessageLocalizedText = SmartWagonPageLocale.EFS_PARTIAL_UPSELL_CART_BUYBOX_HUC_DEFAULT.getI18NContent();
+        SmartWagonPage smartWagonPage = new SmartWagonPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(smartWagonPage.isFreeShippingProgressBarPresent(), "Free Shipping Progress bar is not Present");
+        softAssert.assertTrue(Integer.parseInt(smartWagonPage.getFreeShippingProgressBarPercentage()) < Integer.parseInt("100"), "Free Shipping Progress bar is reached the threshold value");
+        final String[] expectedFreeShippingAboveThresholdMessage = freeShippingBelowThresholdMessageLocalizedText.split("\\$\\{hash-get gap\\}");
+        softAssert.assertTrue(smartWagonPage.getFreeShippingMessageText().contains(expectedFreeShippingAboveThresholdMessage[0]),
+                "Free shipping message is displayed incorrectly or not displayed for Jumpin Below Threshold ASIN in Smart Wagon Page : Actual Message - "
+                        + smartWagonPage.getFreeShippingMessageText() + ", Expected Message - " + expectedFreeShippingAboveThresholdMessage[0]);
+        softAssert.assertTrue(smartWagonPage.getFreeShippingMessageText().contains(expectedFreeShippingAboveThresholdMessage[1]),
+                "Free shipping message is displayed incorrectly or not displayed for Jumpin Below Threshold ASIN in Smart Wagon Page : Actual Message - "
+                        + smartWagonPage.getFreeShippingMessageText() + ", Expected Message - " + expectedFreeShippingAboveThresholdMessage[1]);
+        softAssert.assertAll();
+    }
+
+    /**
+     * Method to Add ASIN from detail page and lands on Smart Wagon page.
+     */
+    private void workflowToSmartWagonPage(final TestDTO testDTO, final WebDriver driver, final TestASIN... asins) {
+        for (TestASIN asin : asins) {
+            DetailPageHelper.goToDetailPage(driver, asin, url);
+            DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+            final DetailPage detailPage = new DetailPage(driver);
+            detailPage.addToCart();
+            SleepUtil.sleep(1000);
+            SmartWagonPage smartWagonPage = new SmartWagonPage(driver);
+            if (!smartWagonPage.verifySmartWagonPage()) {
+                DetailPageHelper.goToDetailPage(driver, asin, url);
+                //When an item is added to the cart and EWC is present, the following line can be used to retrieve the SmartWagon ID.
+                driver.get(String.format("%s/cart/smart-wagon?newItems=%s,1", url, smartWagonPage.getSmartWagonItemID(testDTO.getTestASIN().getAsin())));
+            }
+        }
+    }
+
+}
