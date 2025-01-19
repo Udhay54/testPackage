@@ -1,0 +1,313 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.common.CountryZipCodeMapping;
+import org.testng.Assert;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.dataprovider.AISDataProvider;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.AISModeHelper;
+import com.amazon.aeeqa.ui.helper.BrowserDriverHelper;
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.ui.helper.CartHelper;
+import com.amazon.aeeqa.ui.helper.DetailPageHelper;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+import com.amazon.aeeqa.ui.helper.LocationHelper;
+import com.amazon.aeeqa.ui.helper.SignInAndOutHelper;
+import com.amazon.aeeqa.ui.pagemodels.home.GlowWidget;
+import com.amazon.aeeqa.ui.pagemodels.home.HomePage;
+import com.amazon.aeeqa.util.RetrySteps;
+import com.amazon.dtk.type.BrowserName;
+
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * This test class is for verifying the way how customers enter to AIS and leave AIS by using GLOW
+ *
+ * @author kdarshan
+ * @author tingyong
+ */
+@Slf4j
+public class TransitionLogicTest extends AISBaseUITest {
+
+    private static final String COUNTRY_NAME_OF_ADDRESS_1 = "BH";
+    private static final String COUNTRY_NAME_OF_ADDRESS_2 = "AU";
+
+    @Test(description = "C65102, "
+            + "E2E test case for AIS transition logic from Gateway/Home page:Switching to AIS+ verify that customer is actually in AIS mode+verify selected location is shown in glow",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.TRANSITION_LOGIC, FeatureGroups.RUN_PIPELINE})
+    public void testChangeLocationFromHomePage() {
+        changeLocationAndVerifyAISModeOn();
+        final GlowWidget glow = new GlowWidget(driver);
+        Assert.assertTrue(glow.getGlowText().contains(exportableCountry.getCountryDisplayName()), "The location is not displayed in glow, maybe a failure in location change");
+    }
+
+    @Test(description = "C65104, "
+            + "E2E test case for AIS transition logic from detail page:Switching to AIS+ verify that customer is actually in AIS mode+verify selected location is shown in glow",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.TRANSITION_LOGIC},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testChangeLocationFromDetailPage(final TestDTO testDTO) {
+        reportTestDTO(null, testDTO, null);
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        // This is a very special case I have seen, **ONLY** for DetailPage entering AIS mode,
+        // sometimes YES and sometimes NO to do a browser refresh to enter the AIS mode.
+        // So **ONLY** make changes below for this DetailPage case
+        LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+        // Run twice: first time without refresh, second time with refresh if the first time failed
+        RetrySteps.runWithRetry("TransitionLogicTest#testChangeLocationFromDetailPage", 2, 5000, () -> {
+            AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+            return true;
+        }, false /* not ignore the final exception */, () -> {
+            log.warn("Refresh the detail page since it failed without refresh");
+            driver.navigate().refresh();
+            return true;
+        }, Throwable.class);
+        final GlowWidget glow = new GlowWidget(driver);
+        Assert.assertTrue(glow.getGlowText().contains(exportableCountry.getCountryDisplayName()), "The location is not displayed in glow, maybe a failure in location change");
+    }
+
+    @Test(description = "C65103, "
+            + "E2E test case for AIS transition logic from search page:Switching to AIS from search results page+ verify that customer is actually in AIS mode+verify selected location is shown in glow",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.TRANSITION_LOGIC},
+            //TODO: https://issues.amazon.com/issues/D90408811 - Debug inconsistent failure caused in shopping portal pipline and fix. Until then disabling the case
+            enabled = false)
+    public void testChangeLocationFromSearchPage() {
+        final String keywords = "camera";
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(keywords);
+        changeLocationAndVerifyAISModeOn();
+        final GlowWidget glow = new GlowWidget(driver);
+        Assert.assertTrue(glow.getGlowText().contains(exportableCountry.getCountryDisplayName()), "The location is not displayed in glow, maybe a failure in location change");
+    }
+
+    @Test(description = "C65114,"
+            + "E2E test case for AIS transition logic from Home page for signed-in user:Switching to AIS+ verify that customer is actually in AIS mode+verify selected location is shown in glow",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.TRANSITION_LOGIC},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_AND_ASIN,
+            dataProviderClass = AISDataProvider.class,
+            //TODO: https://issues.amazon.com/issues/D90408811 - Debug failure caused in shopping portal pipline and fix. Until then disabling the case
+            enabled = false)
+    //TODO: Need to rework for entering domestic, as JP, AE and AU have additional selection dropdown
+    @MethodSelector(exclude = {"JP", "AE", "AU"})
+    public void testChangeLocationFromHomePageForSignedUser(final TestDTO testDTO) {
+        reportTestDTO(null, testDTO, null);
+        signInAndPreCheckAndChangeLocationAndVerifyAISModeOn(testDTO);
+        final GlowWidget glow = new GlowWidget(driver);
+        Assert.assertTrue(glow.getGlowText().contains(exportableCountry.getCountryDisplayName()), "The location is not displayed in glow, maybe a failure in location change");
+        // Clean the account and keep the location back to US
+        LocationHelper.changeLocationBackToDefaultLocationIfNeeded(driver);
+    }
+
+    @Test(description = "C65105,"
+            +"E2E case for AIS leaving from AIS-US for signed-in users: Leaving AIS+Verify export mode in OFF",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.TRANSITION_LOGIC},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    //TODO: Need to rework for leaving to domestic, as JP, AE and AU have additional selection dropdown
+    @MethodSelector(exclude = {"JP", "AE", "AU"})
+    public void testChangeLocationFromHomePageLeavingForSignedUser(final TestDTO testDTO) {
+        reportTestDTO(null, testDTO, null);
+        RetrySteps.runWithRetry("TransitionLogicTest#testChangeLocationForLeavingSignedInUser", 2, 5000, () -> {
+            signInAndPreCheckAndChangeLocationAndVerifyAISModeOn(testDTO);
+            // AIS leaving using helper
+            LocationHelper.changeLocationBackToDefaultLocationIfNeeded(driver);
+            driver.navigate().refresh();
+            // Verify customer is actually out of AIS or US
+            AISModeHelper.verifyAISModeAndSelectedCountryCodeOrZipCodeIsUpdated(driver, CountryZipCodeMapping.valueOf(COUNTRY_CODE).getLocalZipCode());
+            return true;
+        }, false /* not ignore the final exception */, () -> {
+            log.warn("Refresh the home page since it failed without refresh");
+            driver.navigate().refresh();
+            return true;
+        }, Throwable.class);
+    }
+
+    @Test(description = "C232256,"
+            +"[Recognized/Unrecognized Mode]:Verify if an international customer uses GLOW to change his/her address to an international address on Gateway page refresh will take him/her to AIS-FUJI experience on the same page",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.TRANSITION_LOGIC},
+            //Disabling this Test due to this TT - https://t.corp.amazon.com/P45341337
+            enabled = false)
+    public void testChangeLocationFromHomePageUsingAddress() {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getABasicAisAsin()),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        reportTestDTO(null, testDTO, null);
+        SignInAndOutHelper.signIn(driver, testDTO, url);
+        //AIS Mode is not activated on the page after Sign IN. this is known gap in AIS, hence clicking AmazonLogo to get into.
+        final HomePage homePage = new HomePage(driver);
+        homePage.clickAmazonLogo();
+        final GlowWidget glow = new GlowWidget(driver);
+        SoftAssert softAssert = new SoftAssert();
+        homePage.setSearchBox("toys");
+        softAssert.assertTrue(homePage.isSearchBoxKeywordPresent(), "Keyword was not set on search box before changing address");
+        glow.changeLocationFromAddressList(COUNTRY_NAME_OF_ADDRESS_1);
+        AISModeHelper.verifyAISModeAndSelectedCountryCodeOrZipCodeIsUpdated(driver, COUNTRY_NAME_OF_ADDRESS_1);
+        //To check auto refresh, setting a keyword on search box and checking if it is still present after changing address
+        softAssert.assertFalse(homePage.isSearchBoxKeywordPresent(), "Keyword set on search box is still displayed, auto-refresh may not have worked");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C232292,"
+            +"[Recognized/Unrecognized Mode]:Verify if an international customer uses GLOW to change his/her address to an international address on Cart page refresh will take him/her to AIS-FUJI experience on the same page",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.TRANSITION_LOGIC})
+    public void testChangeLocationFromCartPageUsingAddress() {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getABasicAisAsin()),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        reportTestDTO(null, testDTO, null);
+        SignInAndOutHelper.signIn(driver, testDTO, url);
+        //AIS Mode is not activated on the page after Sign IN. this is known gap in AIS, hence clicking AmazonLogo to get into.
+        final HomePage homePage = new HomePage(driver);
+        homePage.clickAmazonLogo();
+        final GlowWidget glow = new GlowWidget(driver);
+        SoftAssert softAssert = new SoftAssert();
+        glow.changeLocationFromAddressList(COUNTRY_NAME_OF_ADDRESS_1);
+        AISModeHelper.verifyAISModeAndSelectedCountryCodeOrZipCodeIsUpdated(driver, COUNTRY_NAME_OF_ADDRESS_1);
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        final DetailPage detailPage = new DetailPage(driver);
+        String offerListingValue = detailPage.getOfferListingValue();
+        CartHelper.addItemsToCart(driver, testDTO.getTestASIN().getAsin(), offerListingValue);
+        CartHelper.goToCartPage(driver,url);
+
+        homePage.setSearchBox("toys");
+        softAssert.assertTrue(homePage.isSearchBoxKeywordPresent(), "Keyword was not set on search box before changing address");
+        glow.changeLocationFromAddressList(COUNTRY_NAME_OF_ADDRESS_2);
+        AISModeHelper.verifyAISModeAndSelectedCountryCodeOrZipCodeIsUpdated(driver, COUNTRY_NAME_OF_ADDRESS_2);
+        //To check auto refresh, setting a keyword on search box and checking if it is still present after changing address
+        softAssert.assertFalse(homePage.isSearchBoxKeywordPresent(), "Keyword set on search box is still displayed, auto-refresh may not have worked");
+        softAssert.assertAll();
+    }
+
+    // Change location -> AIS mode
+    private void changeLocationAndVerifyAISModeOn() {
+        LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+        // Verify the customer actually in Export mode
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+    }
+
+    @Test(description = "C232293,"
+            +"[Recognized/Unrecognized Mode]:Verify if an international customer uses GLOW to change his/her address to an international address on Search page refresh will take him/her to AIS-FUJI experience on the same page",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.TRANSITION_LOGIC})
+    public void testChangeLocationFromSearchPageUsingAddress() {
+                testDTORequest = buildTestDTORequest(buildTestAsinRequest(getABasicAisAsin()),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        reportTestDTO(null, testDTO, null);
+        SignInAndOutHelper.signIn(driver, testDTO, url);
+        //AIS Mode is not activated on the page after Sign IN. this is known gap in AIS, hence clicking AmazonLogo to get into.
+        final HomePage homePage = new HomePage(driver);
+        homePage.clickAmazonLogo();
+        final GlowWidget glow = new GlowWidget(driver);
+        homePage.search("toys");
+        glow.changeLocationFromAddressList(COUNTRY_NAME_OF_ADDRESS_2);
+        homePage.setSearchBox("camera");
+        LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+      //To check a refresh and page is still on the search page, setting a keyword on search box and checking if its changing to previous Keyword after verifying AIS Mode
+        Assert.assertFalse(homePage.getSearchBoxText().contains("toys"),"Keyword is not changed to original search keyword, auto-refresh may not have worked");
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+      }
+
+    @Test(description = "C232295,"
+            +"[Recognized/Unrecognized Mode]:Verify if an international customer uses GLOW to change his/her address to an US address on Search a page refresh will take him/her to domestic experience on the same page",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.TRANSITION_LOGIC})
+    public void testChangeToUSLocationFromSearchPageUsingAddress() {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getABasicAisAsin()),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        reportTestDTO(null, testDTO, null);
+        SignInAndOutHelper.signIn(driver, testDTO, url);
+        //AIS Mode is not activated on the page after Sign IN. this is known gap in AIS, hence clicking AmazonLogo to get into.
+        final HomePage homePage = new HomePage(driver);
+        homePage.clickAmazonLogo();
+        final GlowWidget glow = new GlowWidget(driver);
+        homePage.search("toys");
+        changeLocationAndVerifyAISModeOn();
+        homePage.setSearchBox("camera");
+        //Switching to the address that has the domestic country code
+        glow.changeLocationFromAddressList(COUNTRY_CODE);
+        AISModeHelper.verifyAISModeAndSelectedCountryCodeOrZipCodeIsUpdated(driver, COUNTRY_CODE);
+        //To check a refresh and page is still on the search page, setting a keyword on search box and checking if its changing to previous Keyword after verifying Domestic Mode
+        Assert.assertFalse(homePage.getSearchBoxText().contains("toys"),"Keyword is not changed to original search keyword, auto-refresh may not have worked");
+    }
+
+    @Test(description = "C232297,"
+            +"[Recognized/Unrecognized]:Verify if an international customer uses GLOW to change his/her address to an US Address on Cart a page refresh will take him/her to domestic experience on the same page",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.TRANSITION_LOGIC})
+    public void testChangeToUSLocationFromCartPageUsingAddress() {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getABasicAisAsin()),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        reportTestDTO(null, testDTO, null);
+        LocationHelper.signInAndChangeLocation(driver, testDTO, exportableCountry.getCountryDisplayName() ,url);
+        final HomePage homePage = new HomePage(driver);
+        final GlowWidget glow = new GlowWidget(driver);
+        SoftAssert softAssert = new SoftAssert();
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        final DetailPage detailPage = new DetailPage(driver);
+        String offerListingValue = detailPage.getOfferListingValue();
+        CartHelper.addItemsToCart(driver, testDTO.getTestASIN().getAsin(), offerListingValue);
+        CartHelper.goToCartPage(driver, url);
+        homePage.setSearchBox("toys");
+        softAssert.assertTrue(homePage.isSearchBoxKeywordPresent(), "Keyword was not set on search box before changing address");
+        //Switching to the address that has the domestic country code
+        glow.changeLocationFromAddressList(COUNTRY_CODE);
+        AISModeHelper.verifyAISModeAndSelectedCountryCodeOrZipCodeIsUpdated(driver, COUNTRY_CODE);
+        //To check auto refresh, setting a keyword on search box and checking if it is still present after changing address
+        softAssert.assertFalse(homePage.isSearchBoxKeywordPresent(), "Keyword set on search box is still displayed, auto-refresh may not have worked");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C232294,"
+            +"[Recognized/Unrecognized]:Verify if an international customer uses GLOW to change his/her address to an US address on Gateway a page refresh will take him/her to domestic experience on the same page",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.TRANSITION_LOGIC})
+    public void testChangeToUSLocationFromHomePageUsingAddress() {
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getABasicAisAsin()),
+                buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+        testDTO = generateTestDTO(testDTORequest);
+        reportTestDTO(null, testDTO, null);
+        LocationHelper.signInAndChangeLocation(driver, testDTO, exportableCountry.getCountryDisplayName() ,url);
+        final HomePage homePage = new HomePage(driver);
+        final GlowWidget glow = new GlowWidget(driver);
+        SoftAssert softAssert = new SoftAssert();
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+        homePage.setSearchBox("toys");
+        softAssert.assertTrue(homePage.isSearchBoxKeywordPresent(), "Keyword was not set on search box before changing address");
+        //Switching to the address that has the domestic country code
+        glow.changeLocationFromAddressList(COUNTRY_CODE);
+        AISModeHelper.verifyAISModeAndSelectedCountryCodeOrZipCodeIsUpdated(driver, COUNTRY_CODE);
+        //To check auto refresh, setting a keyword on search box and checking if it is still present after changing address
+        softAssert.assertFalse(homePage.isSearchBoxKeywordPresent(), "Keyword set on search box is still displayed, auto-refresh may not have worked");
+        softAssert.assertAll();
+    }
+
+    // Sign in and change location -> AIS mode
+    private void signInAndPreCheckAndChangeLocationAndVerifyAISModeOn(final TestDTO testDTO) {
+        SignInAndOutHelper.signIn(driver, testDTO, url);
+        //AIS Mode is not activated on the page after Sign IN. this is known gap in AIS, hence clicking AmazonLogo to get into.
+        final HomePage homePage = new HomePage(driver);
+        homePage.clickAmazonLogo();
+        // If default address after signin is not US, change it to US first.
+        LocationHelper.changeLocationBackToDefaultLocationIfNeeded(driver);
+        AISModeHelper.verifyAISModeAndSelectedCountryCodeOrZipCodeIsUpdated(driver, COUNTRY_CODE);
+        // Start change location
+        LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+    }
+
+    private void refreshOrNotByBrowser() {
+        // From the testing behavior, only Chrome needs refresh for certain situations.
+        if (BrowserDriverHelper.getBrowserName() == BrowserName.CHROME) {
+            driver.navigate().refresh();
+        }
+    }
+
+}
