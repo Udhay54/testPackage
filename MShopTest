@@ -1,0 +1,906 @@
+package com.amazon.aeeqa.ui.tests.countryexpansion;
+
+import java.util.Arrays;
+import java.util.List;
+
+import com.amazon.aeeqa.ui.helper.CartHelper;
+import com.amazon.aeeqa.ui.helper.YourAccountHelper;
+import com.amazon.aeeqa.ui.helper.YourOrdersHelper;
+import com.amazon.aeeqa.ui.pagemodels.mobileapp.*;
+import org.testng.Assert;
+import org.testng.SkipException;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.CountryExpansionBaseUITest;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestAccount;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.DetailPageHelper;
+import com.amazon.aeeqa.utils.SleepUtil;
+import com.amazon.dtk.Constants;
+import com.amazon.dtk.configuration.DTKProperties;
+import com.google.common.collect.Lists;
+
+/**
+ * mShop (Android & iOS Amazon app) test cases.
+ *
+ * @author tingyong
+ */
+public class MShopTest extends CountryExpansionBaseUITest {
+
+    private final String YO_ACCOUNT_EMAIL = "aeeqa-countryexpansion+" + COUNTRY_CODE + "-YO-Manual@amazon.com";
+    private final String YO_ACCOUNT_PASSWORD = HARDCODE_ACCOUNT_PASSWORD;
+    private final TestDTO YO_ACCOUNT = TestDTO.builder().testAccount(TestAccount.builder()
+            .username(YO_ACCOUNT_EMAIL).password(YO_ACCOUNT_PASSWORD).build()).build();
+    private final String CLEAR_CART_URL = "/gp/internal/cart/tests/delete.html?active=on&saved=on";
+    // A TestNG bug, when @BeforeMethod failed, all subsequential tests will be ignored and @BeforeMethod still be executed.
+    // And an Appium bug, ESOCKETTIMEDOUT taking 4 mins (8 mins for local Emulator) for executing unsupported command.
+    // So making a workaround here for MShopTest to make sure: 1. If once failed, a screenshot should be taken. 2. Skip rest steps.
+    private boolean isBeforeMethodFailed;
+    private boolean isAndroid = DTKProperties.get(Constants.PLATFORM_JVM_ARG).orElse("").equals("android_phone");
+    private boolean isIOS = DTKProperties.get(Constants.PLATFORM_JVM_ARG).orElse("").equals("ios_phone");
+    ;
+    private boolean isLocaleSetUpForIOS = System.getProperty("isLocaleSetUpForIOS", "").equals("true");
+    /* iOS needs this flag to sign out as iOS mShop is not automatically signed out for a new session. */
+    private boolean isSignedIn;
+
+    @BeforeMethod(alwaysRun = true)
+    public void switchMarketplaceAndLanguage() {
+        if (isBeforeMethodFailed) {
+            throw new SkipException("Refer the Failed Configuration method for failure details.");
+        }
+        // Max 2 attempts after a 10 seconds and throw out the failure if all failed
+        runWithRetry("MShopTest#switchMarketplaceAndLanguage", 2, 10, () -> {
+            if (isIOS && isLocaleSetUpForIOS) {
+                return true;
+            }
+            // For non-US country/marketplace, the first thing is to skip sign,
+            // and then switch to the dedicated marketplace/language
+            final StartUpPageMobileApp startup = new StartUpPageMobileApp(driver);
+            startup.skipSignIn();
+            final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+            if (DTKProperties.get("weblabs").isPresent()) {
+                homePage.goToDeveloperSettingsPage().addWeblabs(DTKProperties.get("weblabs").get());
+            }
+            if (isAndroid) {
+                // The startup language is English, so need to use the EN language code to select the Marketplace/Language first.
+                homePage.switchMarketplaceAndLanguage(marketplaceAndLanguage.getLocalizedCountryName(),
+                        marketplaceAndLanguage.getLocalizedLanguageName());
+            } else if (isIOS) {
+                final DeveloperSettingsPageMobileApp dsp = homePage.goToDeveloperSettingsPage();
+                dsp.setLocale(marketplaceAndLanguage.getCountryCode(), marketplaceAndLanguage.getLanguageCode());
+                isLocaleSetUpForIOS = true;
+                // Need a restart of the APP
+                toolCloseSession();
+                toolOpenSession();
+            }
+            // If retry passed, make it false again.
+            if (isBeforeMethodFailed) {
+                isBeforeMethodFailed = false;
+            }
+            return true;
+        }, false, () -> {
+            isBeforeMethodFailed = true;
+            return true;
+        }, Throwable.class);
+    }
+
+    @AfterMethod(alwaysRun = true)
+    public void signOut() {
+        // Max 2 attempts after a 10 seconds and ignore the failures if any
+        runWithRetry("MShopTest#switchMarketplaceAndLanguage", 2, 10, () -> {
+            if (isIOS && isSignedIn) {
+                final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+                homePage.backToGatewayPageFromCheckout();
+                homePage.signOut();
+                isSignedIn = false;
+            }
+            return true;
+        }, true, null, Throwable.class);
+    }
+
+    @Test(description = "C150716, Verify logo navigate to gateway page.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP}, enabled = false)
+    public void testLogoNavigatingToGatewayPage() {
+        SoftAssert softAssert = new SoftAssert();
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        // Search an asin and then check Amazon logo
+        homePage.enterSearchText("toys");
+        try {
+            homePage.clickHome();
+        } catch (Exception e) {
+            softAssert.fail("Click Amazon logo failed after Search", e);
+        }
+        // Go to detail page and then check Amazon logo
+        final NavigationToDetailPageMobileApp detailPageMobileApp = new NavigationToDetailPageMobileApp(driver);
+        detailPageMobileApp.goToDetailPage(url, generateTestDTO("isBuyable", null).getTestASIN());
+        try {
+            homePage.clickHome();
+        } catch (Exception e) {
+            softAssert.fail("Click Amazon logo failed on Detail page", e);
+        }
+        // Go to cart page and then check Amazon logo
+        homePage.clickCart();
+        try {
+            homePage.clickHome();
+        } catch (Exception e) {
+            softAssert.fail("Click Amazon logo failed on Cart page", e);
+        }
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C150718, Verify user able to search a product from gateway page.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testSearchInGateway() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.enterSearchText(generateTestDTO("isBuyable", null).getTestASIN().getAsin());
+        final SearchResultsPageMobileApp searchResults = new SearchResultsPageMobileApp(driver);
+        // We are searching one asin string, so expecting '1 Result'
+        // It can be "" here to indicate the localized text is inside the locator xpath for verification.
+        searchResults.verifySearchResultsCountTextPresent("");
+    }
+
+    @Test(description = "C150709, Verify Home.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    @MethodSelector(exclude = "EG") // No "Home" menu for EG bottom sheet view
+    public void testHome() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickBurgerMenu();
+        homePage.clickHome();
+        //Home Tab Will have the Value 1.
+        homePage.verifyBlueLineAboveBottomTabsSection("1");
+    }
+
+    @Test(description = "C150710, Verify 'Your Order'.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testYourOrders() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickBurgerMenu();
+        homePage.clickYourOrders();
+        signIn(YO_ACCOUNT);
+        final YourOrdersPageMobileApp yourOrders = new YourOrdersPageMobileApp(driver);
+        Assert.assertTrue(yourOrders.isYourOrdersSearchTextBoxPresent(), "Your Order Page is not redirected selecting Your Orders Tab");
+    }
+
+    @Test(description = "C150711, Verify 'Your List'.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testYourWishList() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickBurgerMenu();
+        homePage.clickYourWishList();
+        final YourListsPageMobileApp yourLists = new YourListsPageMobileApp(driver);
+        signIn(generateTestDTO(null, getDefaultAddressAndPaymentAccountTag()));
+        Assert.assertTrue(yourLists.isListPageContentPresent(), "Your Lists page not directed for Recognized user.");
+    }
+
+    @Test(description = "C150712, Verify 'Your account'.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testYourAccount() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickBurgerMenu();
+        homePage.clickYourAccount();
+        signIn(generateTestDTO(null, getDefaultAddressAndPaymentAccountTag()));
+        final YourAccountPageMobileApp yourAccount = new YourAccountPageMobileApp(driver);
+        Assert.assertTrue(yourAccount.isYourOrderSectionPresent(), "'Your Orders' section absent in Your Account page for Recognized user.");
+    }
+
+    @Test(description = "C150714, Verify 'Your Settings'.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testSettings() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickBurgerMenu();
+        // iOS mShop's settings menu needs swipe first
+        if (isIOS) {
+            SleepUtil.sleep(5000);
+            homePage.swipeTopToBottom();
+        }
+        homePage.clickSettings();
+        Assert.assertTrue(homePage.isCountryLanguageSettingsMenuPresent(),
+                "Country and Language settings menu absent.");
+    }
+
+    @Test(description = "C150715, Verify 'Customer Service'.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testCustomerService() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickBurgerMenu();
+        homePage.clickCustomerService();
+        signIn(generateTestDTO(null, getDefaultAddressAndPaymentAccountTag()));
+        final CustomerServicePageMobileApp customerServicePage = new CustomerServicePageMobileApp(driver);
+        Assert.assertTrue(customerServicePage.isManageYourOrdersSectionPresent(), "Manager Your Order absent in Customer Service page.");
+    }
+
+    @Test(description = "C150721, Verify the links in Detail in Mobile App.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testNavLinksInDetailPage() {
+        final NavigationToDetailPageMobileApp detailPageMobileApp = new NavigationToDetailPageMobileApp(driver);
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        try {
+            detailPageMobileApp.goToDetailPage(url, generateTestDTO("isBuyable", null).getTestASIN());
+        } catch (Exception E) {
+            homePage.enterSearchText(generateTestDTO("isBuyable", null).getTestASIN().getAsin());
+            final SearchResultsPageMobileApp searchResults = new SearchResultsPageMobileApp(driver);
+            searchResults.clickFirstSearchResult();
+        }
+        homePage.verifyNavElementsPresentOnDetailPage();
+    }
+
+    @Test(description = "C150724, Verify all pages in Setting should be the same language with selected one.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    @MethodSelector(exclude = "EG") // Not applicable for EG en
+    public void testSettingsPagesInLocalizedLanguage() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        SoftAssert softAssert = new SoftAssert();
+        for(String[] menuAndPage : getLocalizedTextForSettingsPages(marketplaceAndLanguage)) {
+            if (menuAndPage.length != 2) {
+                throw new RuntimeException("menuAndPage should have 2 elements.");
+            }
+            try {
+                //For Belgium Settings Option is loading only after Setting the Weblab again.
+                if (COUNTRY_CODE.contains("BE")) {
+                    homePage.goToDeveloperSettingsPage().addWeblabs(DTKProperties.get("weblabs").get());
+                    homePage.acceptCookiesBanner();
+                }
+                homePage.clickBurgerMenu();
+                // iOS mShop's settings menu needs swipe first
+                if (isIOS) {
+                    SleepUtil.sleep(5000);
+                    homePage.swipeTopToBottom();
+                }
+                homePage.clickSettings();
+                homePage.verifyLocalizedMenuAndPage(menuAndPage[0], menuAndPage[1]);
+            } catch (Throwable e) {
+                softAssert.fail("Localization verification failed for: " + Arrays.toString(menuAndPage), e);
+            }
+        }
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C150728, Verify country switch.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    @MethodSelector(exclude = "EG") // Not applicable for EG en
+    public void testCountrySwitch() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        // Switching country and language is a @BeforeMethod for all tests, here first verify it is localized.
+        SoftAssert softAssert = new SoftAssert();
+        for(Object[] localizationData : getLocalizedTextForSearchBox(marketplaceAndLanguage)) {
+            if (localizationData.length != 4) {
+                throw new RuntimeException("localizationData should have 4 elements.");
+            }
+            String currentLocalizedTextForSearchBox = (String) localizationData[1];
+            softAssert.assertTrue(homePage.isSearchBoxByLocalizedTextPresent(currentLocalizedTextForSearchBox),
+                    "The localized text for Search Box not found: " + currentLocalizedTextForSearchBox);
+            MShopMarketplaceAndLanguage targetML = (MShopMarketplaceAndLanguage) localizationData[2];
+            String targetLocalizedTextForSearchBox = (String) localizationData[3];
+            //For Belgium Settings Option is loading only after Setting the Weblab again.
+            if (COUNTRY_CODE.contains("BE")) {
+                homePage.goToDeveloperSettingsPage().addWeblabs(DTKProperties.get("weblabs").get());
+                homePage.acceptCookiesBanner();
+            }
+            homePage.switchMarketplaceAndLanguage(targetML.getLocalizedCountryName(), targetML.getLocalizedLanguageName());
+            softAssert.assertTrue(homePage.isSearchBoxByLocalizedTextPresent(targetLocalizedTextForSearchBox),
+                    "The localized text for Search Box not found: " + targetLocalizedTextForSearchBox);
+        }
+        // For iOS, switch back to original locale.
+        if (isIOS) {
+            homePage.switchMarketplaceAndLanguage(marketplaceAndLanguage.getLocalizedCountryName(),
+                    marketplaceAndLanguage.getLocalizedLanguageName());
+        }
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C179208, [Glow] - Verify GLOW widget should be present.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    @MethodSelector(exclude = "BE")
+    public void testGlowWidget() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        SoftAssert softAssert = new SoftAssert();
+        // iOS mShop by Webview not able to see the Glow widget, have to use clicking method instead.
+        if (isAndroid) {
+            List<String> urls = Lists.newArrayList();
+            String baseURL = url.toString();
+            // DetailPage
+            urls.add(DetailPageHelper.getDetailPageUrl(generateTestDTO("isBuyable", null).getTestASIN(), url));
+            // Gateway
+            urls.add(baseURL);
+            // Search
+            urls.add(baseURL + "/s?k=toys");
+            // Cart
+            urls.add(baseURL + "/gp/cart/view.html?ref_=nav_cart");
+            for (String testUrl : urls) {
+                try {
+                    homePage.goToUrlByWebViewForMobile(testUrl);
+                    homePage.verifyGlowWidget();
+                    homePage.clickBackButton();
+                    homePage.clickHome();
+                } catch (Throwable e) {
+                    softAssert.fail("GLOW verification failed for url: " + testUrl, e);
+                }
+            }
+        } else if (isIOS) {
+            // Gateway
+            verifyGlowAndDismiss(homePage, softAssert, "Gateway");
+            // iOS mShop Glow popup for Cart/DetailPage/Search most times didn't appear
+            // TODO: https://issues.amazon.com/issues/P37162996
+              // Cart
+//            homePage.clickCart();
+//            verifyGlowAndDismiss(homePage, softAssert, "Cart");
+//            // DetailPgae
+//            homePage.enterSearchText(generateTestDTO("isBuyable", null).getTestASIN().getAsin());
+//            final SearchResultsPageMobileApp searchResults = new SearchResultsPageMobileApp(driver);
+//            searchResults.clickFirstSearchResult();
+//            // There is no waitForPageToLoad method for mShop, sleeping 10 seconds here for page loading
+//            SleepUtil.sleep(10000);
+//            verifyGlowAndDismiss(homePage, softAssert, "DetailPage");
+//            // Search
+//            homePage.enterSearchText("toys");
+//            SleepUtil.sleep(10000);
+//            verifyGlowAndDismiss(homePage, softAssert, "Search");
+        }
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C150722, Global Nav_Clicking on the Global Location widget should display the Choose your location popup.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testGlowIcon() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        if (isAndroid) {
+            homePage.clickHome();
+        }
+        homePage.clickGlowIcon();
+        homePage.verifyGlowPopup();
+    }
+
+    @Test(description = "C181081, Verify Scan your card option should be displayed in payment section.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testScanCardPresentForPayment() {
+        workflowToCheckout();
+        final SospPageMobileApp sospPage = new SospPageMobileApp(driver);
+        sospPage.clickDeliverToThisAddressButton();
+        final PspPageMobileApp paymentPage = new PspPageMobileApp(driver);
+        paymentPage.navigateToAddPaymentMethodPage();
+        paymentPage.verifyScanYourCardOptionPresent();
+    }
+
+    @Test(description = "C181082, Verify Place your Order Widget - Mobile App only.",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testPlaceYourOrderWidget() {
+        workflowToCheckout();
+        final SospPageMobileApp sospPage = new SospPageMobileApp(driver);
+        sospPage.clickDeliverToThisAddressButton();
+        final PspPageMobileApp paymentPage = new PspPageMobileApp(driver);
+        paymentPage.clickContinueButton();
+        final ReviewYourOrdersPageMobileApp reviewYourOrdersPage = new ReviewYourOrdersPageMobileApp(driver);
+        reviewYourOrdersPage.verifyPlaceYourOrderWidget();
+    }
+
+    @Test(description = "C156443, Verify clicking the Switch Accounts option from the settings page" +
+            "takes to Switch Accounts page",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testSwitchAccountsOption() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        signInFromHamburgerMenu(homePage, generateTestDTO(null, getDefaultAddressAndPaymentAccountTag()));
+        homePage.clickHome();
+        homePage.navigateToSwitchAccountPage();
+        homePage.verifyAddAccountButtonPresent();
+    }
+
+    @Test(description = "C150727, Verify sign out option in the setting menu",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testSignOutButton() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        signInFromHamburgerMenu(homePage, generateTestDTO(null, getDefaultAddressAndPaymentAccountTag()));
+        homePage.clickHome();
+        //Localized String value - %s to nie Ty? Wyloguj się
+        String[] signOutText = lmsHelper.getTextForStringId("anxm_signout").split("\\?");
+        homePage.verifySignOutButtonPresent(signOutText[1].trim());
+    }
+
+    @Test(description = "C180665, Verify \"Create a list\" button displayed in the list section when there " +
+            "are no lists created in the account",
+            groups = {PriorityGroups.P0, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testCreateAListButtonInsideMeTab() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        signInFromHamburgerMenu(homePage, generateTestDTO(null, getDefaultAddressAndPaymentAccountTag()));
+        homePage.clickHome();
+        homePage.clickMeTab();
+        final YourProfilePageMobileApp yourProfilePageMobileApp = new YourProfilePageMobileApp(driver);
+        yourProfilePageMobileApp.clickCreateAListOrShoppingListButton();
+        final YourListsPageMobileApp yourListsPageMobileApp = new YourListsPageMobileApp(driver);
+        Assert.assertTrue(yourListsPageMobileApp.isListPageContentPresent(), "Clicking List button on Me Tab not" +
+                "navigating to Create List Page");
+    }
+
+    @Test(description = "C150717, Verify search bar and search icon displayed in the global top-nav across all pages except gateway and search page",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testSearchWorksFromOtherPage() {
+        // Go to detail page
+        final NavigationToDetailPageMobileApp detailPageMobileApp = new NavigationToDetailPageMobileApp(driver);
+        detailPageMobileApp.goToDetailPage(url, generateTestDTO("isBuyable", null).getTestASIN());
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        // Search an asin and then check Amazon logo
+        homePage.enterSearchText("toys");
+        final SearchResultsPageMobileApp searchResults = new SearchResultsPageMobileApp(driver);
+        searchResults.verifySearchFilterButtonPresent();
+    }
+
+    @Test(description = "C179210, Verify cart icon in the bottom tab of the app",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testCartButtonOnBottomTabs() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.verifyCartIconTextPresentByValue("0");
+        homePage.clickCart();
+        final CartPageMobileApp cartPage = new CartPageMobileApp(driver);
+        Assert.assertTrue(cartPage.verifyCartEmptyMessagePresent(), "Cart Empty Message is not present");
+    }
+
+    @Test(description = "C156488, Verify clicking the bell icon in the global nav takes the user to the notifications page",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testBellIconPresentInsideMeTab() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        signInFromHamburgerMenu(homePage, generateTestDTO(null, getDefaultAddressAndPaymentAccountTag()));
+        homePage.clickMeTab();
+        final YourProfilePageMobileApp yourProfilePageMobileApp = new YourProfilePageMobileApp(driver);
+        yourProfilePageMobileApp.verifyNotificationIconPresentAndEnabled();
+    }
+
+    @Test(description = "C179234, Verify user should be able to see the Bottom Tab across all the pages",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void verifyBottomTabPresentAcrossAllPages() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        SoftAssert softAssert = new SoftAssert();
+        List<String> urls = Lists.newArrayList();
+        String baseURL = url.toString();
+        // DetailPage
+        urls.add(DetailPageHelper.getDetailPageUrl(generateTestDTO("isBuyable", null).getTestASIN(), url));
+        // Gateway
+        urls.add(baseURL);
+        // Search
+        urls.add(baseURL + "/s?k=toys");
+        // Cart
+        urls.add(baseURL + "/gp/cart/view.html?ref_=nav_cart");
+        //Your Orders Page
+        urls.add(baseURL + YourOrdersHelper.YOUR_ORDERS_PAGE_URL);
+        //Your Account Page
+        urls.add(baseURL + YourAccountHelper.MOBILE_APP_YOUR_ACCOUNT_PAGE_URL);
+        signInFromHamburgerMenu(homePage, generateTestDTO(null, getDefaultAddressAndPaymentAccountTag()));
+        for (String testUrl : urls) {
+            try {
+                homePage.clickHome();
+                homePage.goToUrlByWebViewForMobile(testUrl);
+                homePage.verifyBottomTabElementsPresent();
+            } catch (Throwable e) {
+                softAssert.fail("GLOW verification failed for url: " + testUrl, e);
+            }
+        }
+    }
+
+    @Test(description = "C180646, Verify clicking on the 'Home' tab from any page will redirect the user to gateway page",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testHomeTabBehavior() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        List<String> urls = Lists.newArrayList();
+        // DetailPage
+        urls.add(DetailPageHelper.getDetailPageUrl(generateTestDTO("isBuyable", null).getTestASIN(), url));
+        // Search
+        urls.add(url + "/s?k=toys");
+        for (String testUrl : urls) {
+            try {
+                homePage.clickHome();
+                homePage.goToUrlByWebViewForMobile(testUrl);
+            } catch (Throwable e) {
+                Assert.fail("Error navigating to the page: " + testUrl, e);
+            }
+        }
+        homePage.clickHome();
+        homePage.verifyBlueLineAboveBottomTabsSection("Home Tab");
+    }
+
+    @Test(description = "C184776, Verify the current page's histroy is retained on switching from " +
+            "'Home' tab to many other tabs and again back to 'Home' tab",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testCurrentPageHistoryRetainedOnSwitchingHomeTab() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        List<String> urls = Lists.newArrayList();
+        // DetailPage
+        homePage.goToUrlByWebViewForMobile(DetailPageHelper.getDetailPageUrl(generateTestDTO("isBuyable",
+                null).getTestASIN(), url));
+        homePage.clickMeTab();
+        homePage.clickHome();
+        final DetailPageMobileApp detailPageMobileApp = new DetailPageMobileApp(driver);
+        detailPageMobileApp.verifyAddToCartButtonPresent();
+        homePage.clickHome();
+        homePage.verifyBlueLineAboveBottomTabsSection("Home Tab");
+    }
+
+    @Test(description = "C180671, Verify Bottom tabs are highlighted in blue color and blueline " +
+            "should display above each tab while selecting them respectively",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testBottomTabsHighlightedBlueLine() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickMeTab();
+        //Here the Parameter is content desc which is same for non-english language as well
+        homePage.verifyBlueLineAboveBottomTabsSection("Your Amazon.com Tab");
+        homePage.clickHome();
+        homePage.verifyBlueLineAboveBottomTabsSection("Home Tab");
+        homePage.clickCart();
+        homePage.verifyBlueLineAboveBottomTabsSection("Cart");
+        homePage.clickBurgerMenu();
+        homePage.verifyBlueLineAboveBottomTabsSection("Menu");
+    }
+
+    @Test(description = "C181094, Verify Search icon displayed in the top-nav across all bottom tab option's landing page",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testSearchIconPresentAccrossAllBottomTabs() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickMeTab();
+        homePage.verifySearchIconPresent();
+        homePage.clickHome();
+        homePage.verifySearchIconPresent();
+        homePage.clickCart();
+        homePage.verifySearchIconPresent();
+        homePage.clickBurgerMenu();
+        homePage.verifySearchIconPresent();
+        homePage.enterSearchText("toys");
+        final SearchResultsPageMobileApp searchResults = new SearchResultsPageMobileApp(driver);
+        searchResults.verifySearchFilterButtonPresent();
+    }
+
+    @Test(description = "C150741, [Footer] - Verify no Footer links are displayed in Mobile App",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testMobileWebFooterLinkNotPresent() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickCart();
+        homePage.verifyFooterLinkAbsent();
+    }
+
+    @Test(description = "C180674, Verify \"Me\" tab behavior for Unrecognised user",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testMeTabBehaviorForUnrecognisedUser() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickMeTab();
+        final YourProfilePageMobileApp yourProfilePageMobileApp = new YourProfilePageMobileApp(driver);
+        yourProfilePageMobileApp.verifyMeTabContentsPresent();
+    }
+
+    @Test(description = "C180675, Verify Sign in button on me tab page",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testSignInButtonOnMeTab() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickMeTab();
+        final YourProfilePageMobileApp yourProfilePageMobileApp = new YourProfilePageMobileApp(driver);
+        yourProfilePageMobileApp.verifyMeTabContentsPresent();
+        yourProfilePageMobileApp.clickSignInButton();
+        final StartUpPageMobileApp startUpPageMobileApp = new StartUpPageMobileApp(driver);
+        startUpPageMobileApp.verifyCurrentPage();
+    }
+
+    @Test(description = "C180679, Verify Create account button",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testCreateAccountButtonInMeTab() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickMeTab();
+        final YourProfilePageMobileApp yourProfilePageMobileApp = new YourProfilePageMobileApp(driver);
+        yourProfilePageMobileApp.verifyMeTabContentsPresent();
+        yourProfilePageMobileApp.clickCreateAccountButton();
+        final SignInPageMobileApp signInPageMobileApp = new SignInPageMobileApp(driver);
+        signInPageMobileApp.verifyCreateAccountSectionPresent();
+        signInPageMobileApp.verifyCurrentPage();
+    }
+
+    @Test(description = "C181084, Verify Sign in option on cart tab",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testSignInButtonInCart() {
+        final HomePageMobileApp homePageMobileApp = new HomePageMobileApp(driver);
+        homePageMobileApp.clickCart();
+        final CartPageMobileApp cartPageMobileApp = new CartPageMobileApp(driver);
+        cartPageMobileApp.clickSignInButton();
+        final SignInPageMobileApp signInPageMobileApp = new SignInPageMobileApp(driver);
+        signInPageMobileApp.verifyCurrentPage();
+    }
+
+    @Test(description = "C181085, Verify Create account on Cart tab",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testSignUpNowButtonInCart() {
+        final HomePageMobileApp homePageMobileApp = new HomePageMobileApp(driver);
+        homePageMobileApp.clickCart();
+        final CartPageMobileApp cartPageMobileApp = new CartPageMobileApp(driver);
+        cartPageMobileApp.clickSignUpNowButton();
+        final SignInPageMobileApp signInPageMobileApp = new SignInPageMobileApp(driver);
+        signInPageMobileApp.verifyCreateAccountSectionPresent();
+        signInPageMobileApp.verifyCurrentPage();
+    }
+
+    @Test(description = "C181086, Verify \"Continue shopping\" button",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testContinueShoppingInCart() {
+        final HomePageMobileApp homePageMobileApp = new HomePageMobileApp(driver);
+        homePageMobileApp.clickCart();
+        final CartPageMobileApp cartPageMobileApp = new CartPageMobileApp(driver);
+        cartPageMobileApp.clickContinueShoppingButton();
+        homePageMobileApp.verifyBlueLineAboveBottomTabsSection("Home Tab");
+    }
+
+    @Test(description = "C180670, Verify the count on cart icon displayed in the bottom tab",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testCartIconTextDisplayedOnBottomTab() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        signInFromHamburgerMenu(homePage, generateTestDTO(null, getDefaultAddressAndPaymentAccountTag()));
+        homePage.clickHome();
+        final NavigationToDetailPageMobileApp navigationToDetailPageMobileApp = new NavigationToDetailPageMobileApp(driver);
+        navigationToDetailPageMobileApp.goToDetailPage(url, generateTestDTO("isBuyable", null).getTestASIN());
+        final DetailPageMobileApp detailPageMobileApp = new DetailPageMobileApp(driver);
+        detailPageMobileApp.clickAddToCartButton();
+        homePage.clickHome();
+        homePage.verifyCartIconTextPresentByValue("1");
+    }
+
+    @Test(description = "C180648, Verify \"Cart\" icon is displayed and the behavior of Cart icon",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testCartTabAsRecognizedUser() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        signInFromHamburgerMenu(homePage, generateTestDTO(null, getDefaultAddressAndPaymentAccountTag()));
+        homePage.clickCart();
+        final CartPageMobileApp cartPageMobileApp = new CartPageMobileApp(driver);
+        cartPageMobileApp.verifyCartEmptyMessagePresent();
+    }
+
+    @Test(description = "C180673, Verify \"Cart\" tab behavior for unrecognised user",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testCartTabAsUnRecognizedUser() {
+        // Go to detail page
+        final NavigationToDetailPageMobileApp navigationToDetailPageMobileApp = new NavigationToDetailPageMobileApp(driver);
+        navigationToDetailPageMobileApp.goToDetailPage(url, generateTestDTO("isBuyable", null).getTestASIN());
+        final DetailPageMobileApp detailPageMobileApp = new DetailPageMobileApp(driver);
+        detailPageMobileApp.clickAddToCartButton();
+        final CartPageMobileApp cartPageMobileApp = new CartPageMobileApp(driver);
+        final HomePageMobileApp homePageMobileApp = new HomePageMobileApp(driver);
+        homePageMobileApp.clickCart();
+        cartPageMobileApp.verifyProceedToCheckoutButtonPresent();
+    }
+
+    @Test(description = "C180647, Verify \"Me\" tab is displayed and the behavior of me tab",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testAmazonLogoPresentInsideMeTab() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        signInFromHamburgerMenu(homePage, generateTestDTO(null, getDefaultAddressAndPaymentAccountTag()));
+        homePage.clickMeTab();
+        Assert.assertTrue(homePage.isAmazonLogoPresent(), "Amazon Logo is missing when the user clicks ME Tab");
+    }
+
+    @Test(description = "C180667, Verify Search icon is displayed",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testSearchIconPresentInsideMeTab() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickMeTab();
+        homePage.verifySearchIconPresent();
+    }
+
+    @Test(description = "C180652, Verify Amazon logo is not displayed in the top-nav",
+            groups = {PriorityGroups.P1, FeatureGroups.COUNTRY_EXPANSION,
+                    FeatureGroups.MOBILE, FeatureGroups.MOBILE_APP})
+    public void testAmazonLogoNotPresent() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        homePage.clickHome();
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertFalse(homePage.isAmazonLogoPresent(), "Amazon Logo is Present on the Home Page");
+        final NavigationToDetailPageMobileApp navigationToDetailPageMobileApp = new NavigationToDetailPageMobileApp(driver);
+        navigationToDetailPageMobileApp.goToDetailPage(url, generateTestDTO("isBuyable", null).getTestASIN());
+        softAssert.assertFalse(homePage.isAmazonLogoPresent(), "Amazon Logo is Present on the Home Page");
+        homePage.clickCart();
+        softAssert.assertFalse(homePage.isAmazonLogoPresent(), "Amazon Logo is Present on the Home Page");
+        softAssert.assertAll();
+    }
+
+    private void signIn(final TestDTO specificTestDTO) {
+        final SignInPageMobileApp signInPage = new SignInPageMobileApp(driver);
+        signInPage.doSignIn(specificTestDTO.getTestAccount().getUsername(), specificTestDTO.getTestAccount().getPassword());
+        isSignedIn = true;
+    }
+
+    private void signInFromHamburgerMenu(final HomePageMobileApp homePage, final TestDTO specificTestDTO) {
+        homePage.clickSignInLinkInsideHamburgerMenu();
+        signIn(specificTestDTO);
+    }
+
+    private void workflowToCheckout() {
+        final HomePageMobileApp homePage = new HomePageMobileApp(driver);
+        signInFromHamburgerMenu(homePage, generateTestDTO(null, getDefaultAddressAndPaymentAccountTag()));
+        homePage.clickHome();
+        if (isAndroid) {
+            try {
+                homePage.goToUrlByWebViewForMobile(DetailPageHelper.getDetailPageUrl(generateTestDTO("isBuyable", null).getTestASIN(), url));
+            } catch (Exception e) {
+                homePage.enterSearchText(generateTestDTO("isBuyable", null).getTestASIN().getAsin());
+                final SearchResultsPageMobileApp searchResults = new SearchResultsPageMobileApp(driver);
+                searchResults.clickFirstSearchResult();
+            }
+        } else if (isIOS) {
+            // iOS searching an asin and then clicking it works better than using webview for navigating to Detail Page.
+            // homePage.goToDeveloperSettingsPage().goToWebViewUrl(DetailPageHelper.getDetailPageUrl(generateTestDTO("isBuyable", null).getTestASIN(), url));
+            homePage.enterSearchText(generateTestDTO("isBuyable", null).getTestASIN().getAsin());
+            final SearchResultsPageMobileApp searchResults = new SearchResultsPageMobileApp(driver);
+            searchResults.clickFirstSearchResult();
+        }
+        final DetailPageMobileApp detailPage = new DetailPageMobileApp(driver);
+        detailPage.clickAddToCartButton();
+        homePage.clickCart();
+        final CartPageMobileApp cartPage = new CartPageMobileApp(driver);
+        cartPage.clickProceedToCheckoutButton();
+    }
+    
+    private void clearCart(final HomePageMobileApp homePage) {
+        if (isAndroid) {
+            homePage.goToUrlByWebViewForMobile(url + CLEAR_CART_URL);
+        } else if (isIOS) {
+            homePage.goToDeveloperSettingsPage().goToWebViewUrl(url + CLEAR_CART_URL);
+        }
+        homePage.clickHome();
+    }
+    
+    // Return format:
+    // {Country & Language menu localized text, menu heading localized text}
+    // {Notifications menu localized text, Notifications page heading localized text}
+    private String[][] getLocalizedTextForSettingsPages(final MShopMarketplaceAndLanguage marketplaceAndLanguage) {
+        switch (marketplaceAndLanguage) {
+        case GERMANY_DE:
+            // iOS' text is different to Android's
+            String menuText = "Land und Sprache";
+            if (isIOS) {
+                menuText = "Land";
+            }
+            String verificationText = "Land/Region & Sprache";
+            if (isIOS) {
+                verificationText = "Land/Region";
+            }
+            return new String[][] {
+                // Localized text of 'Country & Language' menu, Localized text of 'Country/Region & Language' heading.
+                new String[] {menuText, verificationText},
+                // Localized text of 'Notifications' menu, Localized text of 'Notifications' heading.
+                new String[] {"Benachrichtigungen", "Benachrichtigungen"}
+            };
+        case SWEDEN_SV:
+            // The Country sub menu to be displayed and clicked
+            String seMenuText = "Land och språk";
+            // On Country selection page, the localized text to be verified
+            String seVerificationText = "Land/region och språk";
+            return new String[][] {
+                // Localized text of 'Country & Language' menu, Localized text of 'Country/Region & Language' heading.
+                new String[] {seMenuText, seVerificationText},
+                // Localized text of 'Notifications' menu, Localized text of 'Notifications' heading.
+                new String[] {"Aviseringar", "Meddelanden"}
+            };
+        case POLAND_PL:
+            // The Country sub menu to be displayed and clicked
+            String plMenuText = "Kraj i język";
+            // On Country selection page, the localized text to be verified
+            String plVerificationText = "Kraj/Region i język";
+            return new String[][] {
+                // Localized text of 'Country & Language' menu, Localized text of 'Country/Region & Language' heading.
+                new String[] {plMenuText, plVerificationText},
+                // Localized text of 'Notifications' menu, Localized text of 'Notifications' heading.
+                //new String[] {"Powiadomienia", "Powiadomienia"}
+            };
+            case BELGIUM_FR:
+            // The Country sub menu to be displayed and clicked
+            String beMenuText = "Pays et langue";
+            // On Country selection page, the localized text to be verified
+            String beVerificationText = "langue";
+            return new String[][] {
+                 // Localized text of 'Country & Language' menu, Localized text of 'Country/Region & Language' heading.
+                 new String[] {beMenuText, beVerificationText},
+                 // Localized text of 'Notifications' menu, Localized text of 'Notifications' heading.
+                 //new String[] {"Powiadomienia", "Powiadomienia"}
+                };
+
+            default:
+            throw new RuntimeException("The localized text for Settings pages testing not set.");
+        }
+    }
+    
+    // Return format:
+    // {From MShopMarketplaceAndLanguage, current localized text for search box,
+    //     To MShopMarketplaceAndLanguage, target localized text for search box}
+    private Object[][] getLocalizedTextForSearchBox(final MShopMarketplaceAndLanguage marketplaceAndLanguage) {
+        switch (marketplaceAndLanguage) {
+        case GERMANY_DE:
+            // iOS' search box text is different to Android's
+            String searchBoxText_GERMANY_DE = "Wonach suchen Sie?";
+            if (isIOS) {
+                searchBoxText_GERMANY_DE = "durchsuchen";
+            }
+            String searchBoxText_USA_DE = "What are you looking for?";
+            if (isIOS) {
+                searchBoxText_USA_DE = "Search Amazon";
+            }
+            return new Object[][] {
+                new Object[] {MShopMarketplaceAndLanguage.GERMANY_DE, searchBoxText_GERMANY_DE,
+                        MShopMarketplaceAndLanguage.USA_DE, searchBoxText_USA_DE}
+            };
+        case SWEDEN_SV:
+            String searchBoxText_SWEDEN_SV = "Vad letar du efter?";
+            String searchBoxText_USA_SV = "What are you looking for?";
+            if (isIOS) {
+                searchBoxText_USA_SV = "Search Amazon";
+            }
+            return new Object[][] {
+                new Object[] {MShopMarketplaceAndLanguage.SWEDEN_SV, searchBoxText_SWEDEN_SV,
+                        MShopMarketplaceAndLanguage.USA_SV, searchBoxText_USA_SV}
+            };
+        case POLAND_PL:
+            String searchBoxText_POLAND_PL = "Szukaj w serwisie";
+            String searchBoxText_USA_PL = "Search Amazon";
+            if (isIOS) {
+                searchBoxText_USA_PL = "Search Amazon";
+            }
+            return new Object[][] {new Object[] {MShopMarketplaceAndLanguage.POLAND_PL, searchBoxText_POLAND_PL,
+                    MShopMarketplaceAndLanguage.USA_PL, searchBoxText_USA_PL}
+            };
+        case BELGIUM_FR:
+            String searchBoxText_BELGIUM_FR = "Rechercher sur Amazon.com.be";
+            String searchBoxText_USA_BE = "Search Amazon.com.be";
+            if (isIOS) {
+                searchBoxText_USA_BE = "Search Amazon.com.be";
+            }
+            return new Object[][] {new Object[] {MShopMarketplaceAndLanguage.BELGIUM_FR, searchBoxText_BELGIUM_FR,
+                    MShopMarketplaceAndLanguage.BELGIUM_EN, searchBoxText_USA_BE}
+            };
+        default:
+        throw new RuntimeException("You haven't defined localized data to verify country switch.");
+        }
+    }
+    
+    private void verifyGlowAndDismiss(final HomePageMobileApp homePage, SoftAssert softAssert, String keyword) {
+        try {
+            homePage.verifyGlowWidget();
+        } catch (Throwable e) {
+            softAssert.fail("GLOW verification failed for " + keyword, e);
+        } finally {
+            homePage.dismissGlowPopup();
+        }
+    }
+
+}
