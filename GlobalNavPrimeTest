@@ -1,0 +1,53 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
+
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.LocationHelper;
+import com.amazon.aeeqa.ui.pagemodels.home.HomePage;
+
+/**
+ * Prime related tests on GlabalNav, which requires to sign in with a prime account.
+ *
+ * @author tingyong
+ */
+public class GlobalNavPrimeTest extends AISBaseUITest {
+    
+    @BeforeClass(alwaysRun = true)
+    public void useSingleDriver() {
+        testDTORequest = buildTestDTORequest(null /* no asin */,
+                buildTestAccountRequest(AccountConstants.TAG_PRIME));
+        testDTO = generateTestDTO(testDTORequest);
+        openSingleDriver();
+        runWithRetry("GlobalNavPrimeTest#useSingleDriver", () -> {
+            LocationHelper.signInAndChangeLocation(driver, testDTO, exportableCountry.getCountryDisplayName(), url);
+            driver.navigate().refresh();
+            return true;
+        }, Throwable.class);
+    }
+    
+    @AfterClass(alwaysRun = true)
+    public void closeDriver() {
+        // Run only once and ignore any exception if happened
+        runOnceAndIgnoreAllException("GlobalNavPrimeTest#closeDriver", () -> {
+            LocationHelper.changeLocationBackToDefaultLocationIfNeeded(driver);
+            return true;
+        });
+        // Always close driver
+        closeSingleDriver();
+    }
+    
+    @Test(description = "C65141, "
+            + "Verify Prime users should see Prime below Amazon logo in AIS mode",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.GLOBAL_NAV, FeatureGroups.PRIME})
+    public void testPrimeLinkBelowAmazonLogoPresent() throws Exception {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.verifyNavToolsPrimeLinkPresent();
+    }
+
+}
