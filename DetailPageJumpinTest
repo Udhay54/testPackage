@@ -1,0 +1,285 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.locale.detail.DetailPageLocale;
+import com.amazon.aeeqa.testaccounts.AccountConstants;
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.common.AISJumpinArcThreshold;
+import com.amazon.aeeqa.ui.common.Country;
+import com.amazon.aeeqa.ui.common.WeblabConstants;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestASIN;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.*;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+import com.amazon.aeeqa.ui.pagemodels.home.GlowWidget;
+import lombok.extern.slf4j.Slf4j;
+import org.testng.Assert;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+import java.text.DecimalFormat;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Test cases to verify Detail page Jumpin features in Amazon International Shopping mode.
+ *
+ * @author shrumand
+ */
+@Slf4j
+public class DetailPageJumpinTest extends AISBaseUITest {
+
+    private static final String GROUP_JUMPIN_BELOW_THRESHOLD = "DetailPageJumpin-BelowThreshold";
+    private static final String GROUP_JUMPIN_ABOVE_THRESHOLD = "DetailPageJumpin-AboveThreshold";
+    private static final String TW_ADDRESS_NAME = "TW Address";
+    Country initialExportableCountry = null;
+
+    @BeforeClass(alwaysRun = true)
+    public void setupJumpinValuesAndInitializeExportableCountryToJumpin() {
+        AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC = AISJumpinArcThreshold.valueOf(String.format("%s_%s", sourceCountryCode, freeShippingExportableCountry.toString())).getAISJumpinArcThresholdValue();
+        /**Overriding exportableCountry to Jumpin country as testDTORequest in individual tests is designed with exportableCountry variable input declared in AIS BaseUITest
+         Storing the original exportable country in a new variable to reinitalize back after the tests**/
+        initialExportableCountry = exportableCountry;
+        exportableCountry = freeShippingExportableCountry;
+    }
+
+    @AfterClass(alwaysRun = true)
+    public void reInitializeExportableCountry() {
+        //Other classes' tests may fail if exportableCountry is overriden to freeShippingExportableCountry. Hence, switching back to the original export country chosen in AISBaseUI
+        exportableCountry = initialExportableCountry;
+    }
+
+    public void changeLocationToEnterAISModeAndGoToDetailPage(final TestDTO testDTO, boolean signINRequired) {
+        Assert.assertFalse(testDTO.getTestASIN().getAsin().isEmpty(),"ASIN not there, cannot proceed with this test");
+        if(signINRequired) {
+        LocationHelper.signInAndChangeLocation(driver, testDTO, exportableCountry.getCountryDisplayName(), url);
+        } else {
+        LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+        }
+        driver.navigate().refresh();
+        //TODO: Experimental weblab AEE_TLC_US_NEW_CX_EXPERIMENTAL_361484 is yet to be launched. Forcing it to C. If weblab gets launched, update to new UI by following https://issues.amazon.com/issues/P51967558
+        addWeblabCookie(WeblabConstants.AEE_TLC_US_NEW_CX_EXPERIMENTAL_361484);
+        addWeblabCookie(WeblabConstants.DEX_CLARITY_UDM_SHORTEN_DELIVERY_CONDITION_CX_EXPERIMENT_522685);
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        //Adding this check to verify if AIS mode has been entered
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+        DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+    }
+
+    @Test(description = "C240846, "
+            + "Detail Page-Verify Threshold value is COP aware for FS Eligible item below threshold item -Jumpin Destination-Detail Page Main Section as well as in Buy Box",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, GROUP_JUMPIN_BELOW_THRESHOLD, FeatureGroups.BUYBOX, FeatureGroups.JUMPIN})
+    //TODO: Enable for JP once Jumpin is launched in JP
+    @MethodSelector(exclude = "JP")
+    public void testEligibleForFreeShippingMessageCOPAware() throws Exception {
+        final GlowWidget glow = new GlowWidget(driver);
+        //TODO: Due to this issue https://issues.amazon.com/issues/P55062691, Free shipping messaging doesn't show up in Taiwan Country Name but will display when Taiwan Address is selected.
+        //Once the Issue fixed following IF condition can be removed
+        if (freeShippingExportableCountry.getCountryDisplayName().contains("Taiwan")) {
+            testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                    getAisEligibleForFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC)), buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+            testDTO = generateTestDTO(testDTORequest);
+            LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountry.getCountryDisplayName(), url);
+            driver.navigate().refresh();
+            DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+            glow.changeLocationFromAddressList(TW_ADDRESS_NAME);
+            driver.navigate().refresh();
+            DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+        } else {
+            testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                    getAisEligibleForFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC)), buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+            testDTO = generateTestDTO(testDTORequest);
+            changeLocationToEnterAISModeAndGoToDetailPage(testDTO, true);
+        }
+        final DetailPage detailPage = new DetailPage(driver);
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final String freeShippingUDMMessageOnBuybox = detailPage.getDetailPageAboveTheFold().getUDMMessage().trim();
+        final String expectedDestinationFragmentOnUDM = DetailPageLocale.CORECX_DELIVERY_DESTINATION.getI18NContentWithCustomText(freeShippingExportableCountry.getCountryDisplayName());
+        try {
+            SoftAssert softAssert = new SoftAssert();
+            final Map<String, String> itemAndThresholdValues = new HashMap<>();
+            itemAndThresholdValues.put("${item}",DetailPageLocale.CORECX_ELIGIBLE_ITEMS_SHORT_EFS.getI18NContent());
+            //The price amount is not in selectedCurrency because it is a dynamic value. Hence, the UDM message can be verified by utilising only the currency symbol.
+            itemAndThresholdValues.put("${threshold}", selectedCurrency);
+            final String expectedFreeDeliveryTextInUDM = String.format("%s %s", DetailPageLocale.CORECX_DELIVERY_PRICE_FREE.getI18NContent(), DetailPageLocale.CORECX_DELIVERY_TYPE_DELIVERY.getI18NContent());
+            final String expectedDeliveryConditionInUDM = DetailPageLocale.CORECX_DELIVERY_CONDITION_SHORT_T2.getMultiVariableI18NContent(itemAndThresholdValues);
+            log.info("Observed 'Eligible For FreeShipping Text' in DP: "  + freeShippingUDMMessageOnBuybox);
+            //Validates FREE Delivery string in UDM Message.
+            softAssert.assertTrue(freeShippingUDMMessageOnBuybox.contains(expectedFreeDeliveryTextInUDM),
+                    String.format("Expected FREE delivery string: [%s] was not shown correctly in observed UDM Message on Buybox selection: [%s]", expectedFreeDeliveryTextInUDM, freeShippingUDMMessageOnBuybox));
+
+            //Validates FREE Delivery condition text in UDM Message.
+            softAssert.assertTrue(freeShippingUDMMessageOnBuybox.contains(expectedDeliveryConditionInUDM),
+                    String.format("Observed Free Shipping UDM message on Buybox: [%s] doesn't contain expected free delivery condition text: [%s]", freeShippingUDMMessageOnBuybox, expectedDeliveryConditionInUDM));
+
+            //Validates destination fragment in UDM Message.
+            softAssert.assertTrue(freeShippingUDMMessageOnBuybox.contains(expectedDestinationFragmentOnUDM),
+                    String.format("Expected Destination Name [%s] is missing in observed UDM Message: [%s] for below threshold item in COP buybox",expectedDestinationFragmentOnUDM, freeShippingUDMMessageOnBuybox));
+
+            //Validates eligibility message in buybox.
+            softAssert.assertTrue((detailPage.getDetailPageAboveTheFold().getEligibilityMessageOnBuybox()).isEmpty(), "Eligibility Message is shown in Buybox");
+            softAssert.assertAll();
+
+        } finally {
+            //Resetting the currency back to USD for other test using this account.
+            BrowserDriverHelper.goToUrl(driver, url);
+            CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+            CurrencySelectionHelper.selectCurrencyByNameToShopWith(driver, "Default");
+        }
+    }
+
+    @Test(description = "C240845, "
+            + "Detail Page-[Recognized/Unrecognized]:Verify Free shipping message for item for FS eligible items below threshold in Detail Page-Shipping to Jumpin Destination in Buy Box",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, GROUP_JUMPIN_BELOW_THRESHOLD, FeatureGroups.BUYBOX, FeatureGroups.JUMPIN})
+    //TODO: Enable for JP once Jumpin is launched in JP
+    @MethodSelector(exclude = "JP")
+    public void testEligibleForFreeShippingMessageBelowThresholdOnBuybox() throws Exception {
+        final GlowWidget glow = new GlowWidget(driver);
+        //TODO: Due to this issue https://issues.amazon.com/issues/P55062691, Free shipping messaging doesn't show up in Taiwan Country Name but will display when Taiwan Address is selected.
+        //Once the Issue fixed following IF condition can be removed
+        if (freeShippingExportableCountry.getCountryDisplayName().contains("Taiwan")) {
+            testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                    getAisEligibleForFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC)), buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+            testDTO = generateTestDTO(testDTORequest);
+            LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountry.getCountryDisplayName(), url);
+            driver.navigate().refresh();
+            DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+            glow.changeLocationFromAddressList(TW_ADDRESS_NAME);
+            driver.navigate().refresh();
+            DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+        } else {
+            testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                    getAisEligibleForFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC)), buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+            testDTO = generateTestDTO(testDTORequest);
+            changeLocationToEnterAISModeAndGoToDetailPage(testDTO, true);
+        }
+        final DetailPage detailPage = new DetailPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        final String freeShippingUDMMessageOnBuybox = detailPage.getDetailPageAboveTheFold().getUDMMessage().trim();
+        final String expectedThresholdPriceWithCurrencySymbol = currencySymbol + AIS_FREE_SHIPPING_THRESHOLD_PRICE_BY_ARC.intValue();
+        final Map<String, String> itemAndThresholdValues = new HashMap<>();
+        itemAndThresholdValues.put("${item}",DetailPageLocale.CORECX_ELIGIBLE_ITEMS_SHORT_EFS.getI18NContent());
+        itemAndThresholdValues.put("${threshold}", expectedThresholdPriceWithCurrencySymbol);
+        final String expectedDestinationFragmentOnUDM = DetailPageLocale.CORECX_DELIVERY_DESTINATION.getI18NContentWithCustomText(freeShippingExportableCountry.getCountryDisplayName());
+        final String expectedFreeDeliveryTextInUDM = DetailPageLocale.CORECX_DELIVERY_PRICE_FREE.getI18NContent() + " " + DetailPageLocale.CORECX_DELIVERY_TYPE_DELIVERY.getI18NContent();
+        final String expectedDeliveryConditionInUDM = DetailPageLocale.CORECX_DELIVERY_CONDITION_SHORT_T2.getMultiVariableI18NContent(itemAndThresholdValues);
+        log.info("Observed 'Eligible For FreeShipping Text' in DP: "  + freeShippingUDMMessageOnBuybox);
+        //Validates FREE Delivery string in UDM Message.
+        softAssert.assertTrue(freeShippingUDMMessageOnBuybox.contains(expectedFreeDeliveryTextInUDM),
+                String.format("Expected FREE delivery string: [%s] was not shown correctly in observed UDM Message on Buybox selection: [%s]", expectedFreeDeliveryTextInUDM, freeShippingUDMMessageOnBuybox));
+
+        //Validates FREE Delivery condition text in UDM Message.
+        softAssert.assertTrue(freeShippingUDMMessageOnBuybox.contains(expectedDeliveryConditionInUDM),
+                String.format("Observed Free Shipping UDM message on Buybox: [%s] doesn't contain expected free delivery condition text: [%s]", freeShippingUDMMessageOnBuybox, expectedDeliveryConditionInUDM));
+
+        //Validates destination fragment in UDM Message.
+        softAssert.assertTrue(freeShippingUDMMessageOnBuybox.contains(expectedDestinationFragmentOnUDM),
+                String.format("Expected Destination Name [%s] is missing in observed UDM Message: [%s] for above threshold item in buybox",expectedDestinationFragmentOnUDM, freeShippingUDMMessageOnBuybox));
+
+        //Validates eligibility message in buybox.
+        softAssert.assertTrue((detailPage.getDetailPageAboveTheFold().getEligibilityMessageOnBuybox()).isEmpty(), "Eligibility Message is shown in Buybox");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C240847, "
+            + "Detail Page-[Recognized/Unrecognized]:Verify Free shipping message for item for FS eligible items above threshold in Detail Page-Jumpin Destination",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, GROUP_JUMPIN_ABOVE_THRESHOLD, FeatureGroups.JUMPIN},
+            enabled = true)
+    //TODO: Enable for JP once Jumpin is launched in JP
+    @MethodSelector(exclude = "JP")
+    public void testFreeShippingMessageAboveThresholdNextToPrice() throws Exception {
+        //Overriding Product Group Type since for AT we use SDC config which are currently mapped only for gl_pc
+        productGroupType = "gl_pc";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getJumpinHardCodeASIN("aisFreeShipping")), null /* no account */);
+        //TODO: Once shift service resolves above threshold issue, uncomment the following and remove above implementation for getJumpinHardCodeASIN
+        /*testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getAisFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE)), null /* no account *//*);*/
+        testDTO = generateTestDTO(testDTORequest);
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        //TODO: Revisit this case after UDM is completely launched in new AIS MPs
+        //UDM is under experimental launch in AE and AU, TLC is yet to be launched in these MPs, the following covers only US MP for now
+        if (!detailPage.getCountryEligibleText().isEmpty()) {
+            final String freeShippingMessageNextToPrice = detailPage.getCountryEligibleText().trim();
+            Assert.assertTrue(freeShippingMessageNextToPrice.contains(lmsHelper.getTextForStringId("jumpin_msg_free_shipping")) &&
+                            freeShippingMessageNextToPrice.contains(freeShippingExportableCountry.getCountryDisplayName()),
+                    "Free shipping to Country Name is not displayed for above thresold item next to price");
+        }
+    }
+
+    @Test(description = "C240848, "
+            + "Detail Page-[Recognized/Unrecognized]:Verify Free shipping message for item for FS eligible items above or equal to threshold in Detail Page-Jumpin Destination in Buy Box",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, GROUP_JUMPIN_ABOVE_THRESHOLD, FeatureGroups.BUYBOX, FeatureGroups.JUMPIN},
+            enabled = true)
+    //TODO: Enable for JP once Jumpin is launched in JP
+    @MethodSelector(exclude = "JP")
+    public void testFreeShippingMessageAboveThresholdOnBuybox() throws Exception {
+        //Overriding Product Group Type since for AT we use SDC config which are currently mapped only for gl_pc
+        productGroupType = "gl_pc";
+        final GlowWidget glow = new GlowWidget(driver);
+        //TODO: Due to this issue https://issues.amazon.com/issues/P55062691, Free shipping messaging doesn't show up in Taiwan Country Name but will display when Taiwan Address is selected.
+        //Once the Issue fixed following IF condition can be removed
+        if (freeShippingExportableCountry.getCountryDisplayName().contains("Taiwan")) {
+            testDTORequest = buildTestDTORequest(buildTestAsinRequest(getJumpinHardCodeASIN("aisFreeShipping")), buildTestAccountRequest(AccountConstants.TAG_ALL_ADDRESSES));
+            testDTO = generateTestDTO(testDTORequest);
+            LocationHelper.signInAndChangeLocation(driver, testDTO, freeShippingExportableCountry.getCountryDisplayName(), url);
+            driver.navigate().refresh();
+            DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+            glow.changeLocationFromAddressList(TW_ADDRESS_NAME);
+            driver.navigate().refresh();
+            DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+        } else {
+            //TODO: Once shift service resolves above threshold issue, uncomment the following and remove above implementation for getJumpinHardCodeASIN
+        /*testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getAisFreeShippingAsin(AIS_FREE_SHIPPING_THRESHOLD_PRICE)), null /* no account *//*);*/
+            testDTORequest = buildTestDTORequest(buildTestAsinRequest(getJumpinHardCodeASIN("aisFreeShipping")), null /* no account */);
+            testDTO = generateTestDTO(testDTORequest);
+            changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        }
+        final DetailPage detailPage = new DetailPage(driver);
+        final String freeShippingUDMMessageOnBuybox = detailPage.getDetailPageAboveTheFold().getUDMMessage().trim();
+        final String expectedFreeShippingMessageOnUDM = lmsHelper.getTextForStringId("corecx_delivery_price_free") + " " + lmsHelper.getTextForStringId("corecx_delivery_type_delivery");
+        final String eligibilityMessageOnBuybox = detailPage.getDetailPageAboveTheFold().getEligibilityMessageOnBuybox().trim();
+        final String expectedDestinationFragmentOnUDM = lmsHelper.getTextForStringId("corecx_delivery_destination").replaceAll("\\$\\{hash-get deliveryDestination\\}", freeShippingExportableCountry.getCountryDisplayName());
+        SoftAssert softAssert = new SoftAssert();
+        if (!detailPage.getCountryEligibleTextOnBuybox().isEmpty()) {
+            final String freeShippingMessageOnBuybox = detailPage.getCountryEligibleTextOnBuybox().trim();
+            softAssert.assertTrue(freeShippingMessageOnBuybox.contains(lmsHelper.getTextForStringId("jumpin_msg_free_shipping")) &&
+                            freeShippingMessageOnBuybox.contains(freeShippingExportableCountry.getCountryDisplayName()),
+                    "Free shipping to Country Name is not displayed for above thresold item next to price");
+        }
+
+        log.info("\nObserved FS UDM Message: " + freeShippingUDMMessageOnBuybox + "\nExpected FS message in UDM: " + expectedFreeShippingMessageOnUDM
+                + "\nExpected Destination Fragment in UDM: " + expectedDestinationFragmentOnUDM);
+        softAssert.assertTrue(freeShippingUDMMessageOnBuybox.contains(expectedFreeShippingMessageOnUDM)
+                , "Free delivery string in UDM Message is not displaying for above threshold item in buybox");
+        softAssert.assertTrue(freeShippingUDMMessageOnBuybox.contains(expectedDestinationFragmentOnUDM)
+                , "Destination Name is missing in UDM Message for above threshold item in buybox");
+        softAssert.assertTrue((detailPage.getDetailPageAboveTheFold().getEligibilityMessageOnBuybox()).isEmpty(), "Eligibility Message is shown in Buybox");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C281503, "
+            + "International customers should see Unified Delivery Message (UDM) on Buy Box along with delivery destination in Free Shipping ineligible ASINs for Jumpin destinations",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.DETAIL, FeatureGroups.BUYBOX})
+    public void testUDMMessageDisplayedForJumpinIneligible() throws Exception {
+        driver.navigate().refresh();
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getBasicIneligibleForAisFreeShippingAsin()), null /* no account */);
+        testDTO = generateTestDTO(testDTORequest);
+        changeLocationToEnterAISModeAndGoToDetailPage(testDTO, false);
+        final DetailPage detailPage = new DetailPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        final String udmMessageOnBuybox = detailPage.getDetailPageAboveTheFold().getUDMMessage();
+        softAssert.assertTrue(udmMessageOnBuybox.contains(lmsHelper.getTextForStringId("corecx_delivery_type_capital_delivery"))
+                ,"'Delivery' String was not shown correctly in UDM Message on Buybox");
+        softAssert.assertTrue(udmMessageOnBuybox.contains(lmsHelper.getTextForStringId("corecx_delivery_destination").replaceAll("\\$\\{hash-get deliveryDestination\\}"
+                , freeShippingExportableCountry.getCountryDisplayName())), "Destination Name is missing in UDM Message in buybox");
+        softAssert.assertAll();
+    }
+}
