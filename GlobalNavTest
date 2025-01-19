@@ -1,0 +1,137 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import org.testng.Assert;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
+
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.LocationHelper;
+import com.amazon.aeeqa.ui.pagemodels.currencysettings.CurrencySettingsPage;
+import com.amazon.aeeqa.ui.pagemodels.home.HomePage;
+import com.amazon.aeeqa.ui.helper.AISModeHelper;
+
+/**
+ * Global Nav tests.
+ *
+ * @author tingyong
+ */
+public class GlobalNavTest extends AISBaseUITest {
+    
+    @BeforeClass(alwaysRun = true)
+    public void useSingleDriver() {
+        runWithRetry("GlobalNavTest#useSingleDriver", () -> {
+            openSingleDriver();
+            LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+            driver.navigate().refresh();
+            AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+            return true;
+        }, Throwable.class);
+    }
+    
+    @AfterClass(alwaysRun = true)
+    public void closeDriver() {
+        closeSingleDriver();
+    }
+    
+    @Test(description = "C65139, "
+            + "Verify Non-prime users should not see Try prime between Orders and Cart in AIS mode",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS,
+                    FeatureGroups.GLOBAL_NAV, FeatureGroups.PRIME})
+    public void testNoTryPrimeOnNavToolsBar() throws Exception {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.verifyNavToolsTryPrimeLinkAbsent();
+    }
+    
+    @Test(description = "C65140, "
+            + "Verify Non-prime users should not see Try prime link below Amazon logo on AIS gateway page",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS,
+                    FeatureGroups.GLOBAL_NAV, FeatureGroups.PRIME})
+    public void testNoTryPrimeLinkBelowAmazonLogoOnAISGatewayPage() throws Exception {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.verifyNavLogoTryPrimeLinkAbsent();
+    }
+
+    //TODO: Temporarily disabling the AIS Gateway page test: testNoNewAndInterestingFindsBannerOnAISGatewayPage - https://issues.amazon.com/issues/D181405788
+    @Test(description = "C65145, "
+            + "Verify AIS users should not see \"New and Interesting Finds\" in the Upnav",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.GLOBAL_NAV}, enabled = false)
+    public void testNoNewAndInterestingFindsBannerOnAISGatewayPage() throws Exception {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.verifyNewAndInterestingFindsBannerAbsent();
+    }
+    
+    @Test(description = "C65144, "
+            + "Verify Currency and Language Picker is present on Global Nav",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.GLOBAL_NAV})
+    public void testCurrencyAndLanguagePickerPresent() throws Exception {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.verifyCurrencyAndLanguagePickerPresent();
+    }
+
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    @Test(description = "C65186, "
+            + "Verify there should be Marketplace widget in the bottom Nav footer",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.GLOBAL_NAV})
+    public void testBottomMarketplaceWidgetPresent() throws Exception {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.verifyMarketplaceWidgetPresent();
+    }
+
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    @Test(description = "C65187, "
+            + "Verify there should be Language widget in the bottom Nav footer",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.GLOBAL_NAV, FeatureGroups.RUN_PIPELINE})
+    public void testBottomLanguageWidgetPresent() throws Exception {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.verifyBottomLanguageWidgetPresent();
+    }
+
+    //TODO: Enable other AIS MPs if LoP is launched in new AIS MPs
+    @MethodSelector(exclude = {"AU", "SG"})
+    @Test(description = "C65188, "
+            + "Verify there should be Language widget in the top currency and language picker",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.GLOBAL_NAV})
+    public void testTopCurrencyWidgetPresent() throws Exception {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.waitForPageToLoad();
+        if(driver.getTitle().contains("404") || driver.getTitle().isEmpty() || driver.getTitle().contains("Not Found")){
+            driver.navigate().refresh();
+        }
+        aisGatewayPage.verifyTopCurrencyWidgetPresent();
+    }
+
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    @Test(description = "C65148, "
+            + "Verify clicking on bottom NAV currency picker should take user to change currency page",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.GLOBAL_NAV})
+    public void testClickingBottomCurrencyWidgetWillRedirectToChangeCurrencyPage() throws Exception {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.waitForPageToLoad();
+        if(driver.getTitle().contains("404") || driver.getTitle().isEmpty() || driver.getTitle().contains("Not Found")){
+            driver.navigate().refresh();
+        }
+        aisGatewayPage.clickBottomCurrencyWidget();
+        final CurrencySettingsPage currencySettingPage = new CurrencySettingsPage(driver);
+        Assert.assertTrue(currencySettingPage.getCurrencySettingsHeading().equalsIgnoreCase("Currency Settings"),
+                "Clicking bottom currency widget didn't redirect to Change Currency Settings page.");
+        driver.navigate().back();
+    }
+
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    @Test(description = "C65185, "
+            + "Verify when customer mousehover on COP/LOP toggle from GLOBAL footer NAV user should see the widget",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.GLOBAL_NAV})
+    public void testClickingBottomLanguageWidgetWillShowLanguageSettingsPopover() throws Exception {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.waitForPageToLoad();
+        if(driver.getTitle().contains("404") || driver.getTitle().isEmpty() || driver.getTitle().contains("Not Found")){
+            driver.navigate().refresh();
+        }
+        Assert.assertTrue(aisGatewayPage.isChangeLanguagePresent(),"Change Language string is not visible");
+    }
+
+}
