@@ -1,0 +1,108 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.dataprovider.AISDataProvider;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.helper.LocationHelper;
+import com.amazon.aeeqa.ui.pagemodels.contactus.ContactUsPage;
+import com.amazon.aeeqa.ui.pagemodels.globalnav.GlobalNavPage;
+import com.amazon.aeeqa.ui.pagemodels.home.HomePage;
+import lombok.extern.slf4j.Slf4j;
+import org.testng.annotations.Test;
+import org.testng.asserts.SoftAssert;
+
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * Test cases to verify new Customer Service (Hub & Funnel Experience) in Amazon International Shopping mode
+ *
+ * @author shrumand
+ */
+@Slf4j
+public class ContactUsPageTest extends AISBaseUITest {
+
+    @Test(description = "C284516, "
+            + "Verify if the new AIS customer service CX is displayed for the following scenarios: CS option in global nav, clicking 'Contact Us' in hamburger menu, Clicking on CS option in footer ",
+            groups = {PriorityGroups.P0, FeatureGroups.CONTACT_US},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testContactUsPageForInternationalCustomers(final TestDTO testDTO) throws Exception {
+        HomePage homePage = new HomePage(driver);
+        LocationHelper.signInAndChangeLocation(driver, testDTO, exportableCountry.getCountryDisplayName(), url);
+        homePage.clickAmazonLogo();
+        driver.navigate().refresh();
+        final GlobalNavPage globalNavPage = new GlobalNavPage(driver);
+        //Global Nav
+        globalNavPage.clickHelpLink();
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(globalNavPage.helpGlobalNavLinkIsPresent(),"Customer Service Link Not present");
+        softAssert.assertTrue(driver.getCurrentUrl().contains("hub"));
+        homePage.clickAmazonLogo();
+        //Hamburger Menu
+        globalNavPage.clickHamburgerMenu();
+        globalNavPage.clickHelpLinkInHamburgerMenu();
+        softAssert.assertTrue(driver.getCurrentUrl().contains("hub"));
+        homePage.clickAmazonLogo();
+        //Footer
+        globalNavPage.clickFooterHelpLink();
+        softAssert.assertTrue(driver.getCurrentUrl().contains("hub"));
+    }
+
+    @Test(description = "C284515, "
+            + "Verify if Customer Service Landing Page has all options displayed with the correct content and in right order for AIS Recognized Customers ",
+            groups = {PriorityGroups.P0, FeatureGroups.CONTACT_US},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testMainSICOptionsInContactUsPage(final TestDTO testDTO) throws Exception {
+        HomePage homePage = new HomePage(driver);
+        LocationHelper.signInAndChangeLocation(driver, testDTO, exportableCountry.getCountryDisplayName(), url);
+        List<String> listOfMainCSOptionsStringIDs = Arrays.asList("mob_fshub_ais_order", "mob_fshub_ais_intl", "mob_fshub_payment",
+                "mob_fshub_loginsecurity", "mob_fshub_device", "mob_fshub_digital",
+                "mob_fshub_prime", "mob_fshub_moreacct", "mob_fshub_somethingelse");
+        homePage.clickAmazonLogo();
+        driver.navigate().refresh();
+        final GlobalNavPage globalNavPage = new GlobalNavPage(driver);
+        globalNavPage.clickHelpLink();
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(driver.getCurrentUrl().contains("hub"));
+        final ContactUsPage contactUsPage = new ContactUsPage(driver);
+        softAssert.assertEquals(contactUsPage.getCustomerServiceMainSICOptionsCount(),9, "Expected CS Options for AIS is 9");
+        List<String> getMainSICOptionsList = contactUsPage.getCustomerServiceMainSICOptionsList();
+        for (int i = 0; i < getMainSICOptionsList.size(); i++) {
+            softAssert.assertTrue(getMainSICOptionsList.get(i).contains(lmsHelper.getTextForStringId(listOfMainCSOptionsStringIDs.get(i))),
+                    String.format("Main SIC options #%s is missing or incorrect: %s", i, lmsHelper.getTextForStringId(listOfMainCSOptionsStringIDs.get(i))));
+        }
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C284517, "
+            + "Verify if 'All help topics' section in Customer Service Landing Page has all options displayed with the correct content and in right order for AIS Recognized Customers",
+            groups = {PriorityGroups.P1, FeatureGroups.CONTACT_US},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testHelpTopicsInContactUsPage(final TestDTO testDTO) throws Exception {
+        HomePage homePage = new HomePage(driver);
+        LocationHelper.signInAndChangeLocation(driver, testDTO, exportableCountry.getCountryDisplayName(), url);
+        List<String> listOfHelpTopicsStringIDs = Arrays.asList("fshubgw_ais_recommendedTopics", "fshubgw_ais_wms", "fshubgw_ais_shippingAndDelivery",
+                "fshubgw_ais_returnsAndRefunds", "fshubgw_ais_manageAccount", "fshubgw_ais_securityPrivacy",
+                "fshubgw_ais_paymentPricingPromotions", "fshubgw_ais_devicesDigital", "fshubgw_ident_report_scam", "fshubgw_ais_othertopics");
+        homePage.clickAmazonLogo();
+        driver.navigate().refresh();
+        final GlobalNavPage globalNavPage = new GlobalNavPage(driver);
+        globalNavPage.clickHelpLink();
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(driver.getCurrentUrl().contains("hub"));
+        final ContactUsPage contactUsPage = new ContactUsPage(driver);
+        softAssert.assertTrue(contactUsPage.isHelpTopicsSectionPresent(), "Help Topics section is missing in H&F contact us page");
+        softAssert.assertEquals(contactUsPage.getCustomerServiceHelpTopicsCount(), 10, "Expected Help topics options for AIS is 10");
+        List<String> getHelpTopicsList = contactUsPage.getHelpTopicsList();
+        for (int i = 0; i < getHelpTopicsList.size(); i++) {
+            softAssert.assertTrue(getHelpTopicsList.get(i).contains(lmsHelper.getTextForStringId(listOfHelpTopicsStringIDs.get(i))),
+                    String.format("Help topics #%s is missing or incorrect: %s", i, lmsHelper.getTextForStringId(listOfHelpTopicsStringIDs.get(i))));
+        }
+        softAssert.assertAll();
+    }
+}
