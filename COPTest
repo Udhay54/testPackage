@@ -1,0 +1,516 @@
+package com.amazon.aeeqa.ui.tests.ais;
+
+import com.amazon.aeeqa.locale.ImportFeesStrings;
+import com.amazon.aeeqa.locale.detail.DetailPageLocale;
+import com.amazon.aeeqa.testnglisteners.MethodSelector;
+import com.amazon.aeeqa.ui.helper.*;
+import com.amazon.aeeqa.ui.pagemodels.aod.AODPage;
+import com.amazon.aeeqa.ui.pagemodels.checkout.CheckoutPage;
+import com.amazon.aeeqa.ui.pagemodels.smartwagonPage.SmartWagonPage;
+import org.openqa.selenium.WebDriver;
+import org.testng.Assert;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Test;
+
+import com.amazon.aeeqa.ui.AISBaseUITest;
+import com.amazon.aeeqa.ui.common.WeblabConstants;
+import com.amazon.aeeqa.ui.dataprovider.AISDataProvider;
+import com.amazon.aeeqa.ui.dataprovider.dataobject.TestDTO;
+import com.amazon.aeeqa.ui.groups.FeatureGroups;
+import com.amazon.aeeqa.ui.groups.PriorityGroups;
+import com.amazon.aeeqa.ui.pagemodels.cart.CartPage;
+import com.amazon.aeeqa.ui.pagemodels.currencysettings.CurrencySettingsPage;
+import com.amazon.aeeqa.ui.pagemodels.detail.DetailPage;
+import com.amazon.aeeqa.ui.pagemodels.home.HomePage;
+import com.amazon.aeeqa.ui.pagemodels.huc.HucPage;
+import com.amazon.aeeqa.ui.pagemodels.search.SearchResultsPage;
+import org.testng.asserts.SoftAssert;
+
+import java.lang.reflect.Method;
+import java.util.List;
+import java.util.stream.Collectors;
+
+/**
+ * Currency of preference test cases.
+ *
+ * @author tingyong
+ */
+public class COPTest extends AISBaseUITest {
+
+    private static final String SEARCH_KEYWORD = "headphones";
+
+    @BeforeMethod(alwaysRun = true)
+    public void changeLocationToEnterAISMode() {
+        runWithRetry("COPTest#changeLocationToEnterAISMode", () -> {
+            LocationHelper.changeLocation(driver, exportableCountry.getCountryDisplayName());
+            driver.navigate().refresh();
+            final HomePage aisGatewayPage = new HomePage(driver);
+            aisGatewayPage.clickAmazonLogo();
+            return true;
+        }, Throwable.class);
+    }
+
+    @AfterMethod(alwaysRun = true)
+    public void afterCheckoutTestClearCart(Method testMethodName) {
+        if (testMethodName.getName().toLowerCase().contains("cart") || testMethodName.getName().toLowerCase().contains("checkout")
+                || testMethodName.getName().toLowerCase().contains("SmartWagon"))
+            // Run only once and ignore any exception if happened
+            runOnceAndIgnoreAllException("COPTest#clearCart", () -> {
+                CartHelper.clearItemsInCart(driver);
+                return true;
+            });
+    }
+
+    @AfterMethod(alwaysRun = true)
+    public void changeCurrencyBackToDefaultCurrency() {
+        // Run only once and ignore any exception if happened
+        runOnceAndIgnoreAllException("COPTest#changeCurrencyToDefault", () -> {
+            //Resetting the currency back to USD for other tests using this account.
+            BrowserDriverHelper.goToUrl(driver, url);
+            CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+            CurrencySelectionHelper.selectCurrencyByNameToShopWith(driver, "Default");
+            return true;
+        });
+    }
+
+    /**
+     * Method to go to detail page
+     */
+    private void workflowToDetailPage(final TestDTO testDTO, final WebDriver driver) {
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+    }
+
+    /**
+     * Method to go to cart page from detail page
+     */
+    private void workflowToAddItemsToCartFromDetailPage(final TestDTO testDTO, DetailPage detailPage, final WebDriver driver) {
+        DetailPageHelper.goToDetailPage(driver, testDTO.getTestASIN(), url);
+        DetailPageHelper.skipToBuyNewAccordionBoxIfMultipleBuyableBuyboxTypesExist(driver);
+        String offerListingValue = DetailPageHelper.goToDetailPageAndGetOfferListingValue(driver, detailPage,
+                testDTO.getTestASIN(), url);
+        CartHelper.addItemsToCart(driver, testDTO.getTestASIN().getAsin(), offerListingValue);
+        CartHelper.goToCartPage(driver,url);
+    }
+
+    @Test(description = "C65170, "
+            + "Verify \"Change\" link is present inside the COP/LOP picker",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP})
+    public void testChangeLinkPresentInsideCOPLOPPicker() throws Exception {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.verifyChangeLinkInsideCOPLOPPickerPresent();
+    }
+
+    @Test(description = "C65182, "
+            + "Verify Clicking on 'Change' Link should take user to Currency settings page of your Accounts",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP, FeatureGroups.RUN_PIPELINE, FeatureGroups.RUN_I18N_PARTNER_PIPELINE})
+    public void testClickingChangeLinkWillGotoCurrencySettingsPage() throws Exception {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.clickChangeLinkInsideCOPLOPPicker();
+        final CurrencySettingsPage currencySettingPage = new CurrencySettingsPage(driver);
+        Assert.assertTrue(currencySettingPage.getCurrencySettingsHeading().equalsIgnoreCase("Currency Settings"),
+                "It didn't redirect to Change Currency Settings page.");
+    }
+
+    @Test(description = "C65169, "
+            + "Verify 'Change Currency' string should be present in inside the LOP/COP widget and verify Learn More Link is present next to 'Change Currency'",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.COP})
+    public void testChangeCurrencyAndLearnMoreInCOPLOPWidget() {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.verifyChangeCurrencyPresent();
+        aisGatewayPage.verifyChangeCurrencyLearnMoreLinkPresent();
+    }
+
+    @Test(description = "C65177, "
+            + "Verify \"Currency Settings\" title string is present above the change currency widget",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.COP})
+    public void testCurrencySettingsHeading() {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        final CurrencySettingsPage currencySettingPage = new CurrencySettingsPage(driver);
+        Assert.assertTrue(currencySettingPage.getCurrencySettingsHeading().equalsIgnoreCase("Currency Settings"),
+                "Currency Settings title is not present above change currency widget");
+    }
+
+    @Test(description ="C65178, "
+            + "Verify customer should be able to click on currency settings dropdown and Validate customer should be able to view currency dropdown widget",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP})
+    public void testCurrencyDropdown() {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        final CurrencySettingsPage currencySettingPage = new CurrencySettingsPage(driver);
+        currencySettingPage.verifyCurrencyDropdownClickable();
+    }
+
+    @Test(description = "C65174, "
+            + "Verify there should be correct number of currencies present inside the change currency dropdown according to MP",
+            enabled = true, groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP})
+    public void testCurrencyDropdownCount() {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        final CurrencySettingsPage currencySettingPage = new CurrencySettingsPage(driver);
+        currencySettingPage.verifyCurrencyDropdownClickable();
+        if (sourceCountryCode.equals("AE")) {
+            Assert.assertTrue(currencySettingPage.getCurrenciesCountInCurrencyDropdown() == 11 ,
+                    "11 currencies should be in present in Curreny Dropdown but " + currencySettingPage.getCurrenciesCountInCurrencyDropdown() + " currencies are present");
+        } else if (sourceCountryCode.equals("AU")) {
+            Assert.assertTrue(currencySettingPage.getCurrenciesCountInCurrencyDropdown() == 1 ,
+                    "1 currencies should be in present in Curreny Dropdown but " + currencySettingPage.getCurrenciesCountInCurrencyDropdown() + " currencies are present");
+        } else if (sourceCountryCode.equals("JP")) {
+            Assert.assertTrue(currencySettingPage.getCurrenciesCountInCurrencyDropdown() == 14 ,
+                    "14 currencies should be in present in Curreny Dropdown but " + currencySettingPage.getCurrenciesCountInCurrencyDropdown() + " currencies are present");
+        } else if (sourceCountryCode.equals("SG")) {
+            Assert.assertTrue(currencySettingPage.getCurrenciesCountInCurrencyDropdown() == 1 ,
+                    "1 currencies should be in present in Curreny Dropdown but " + currencySettingPage.getCurrenciesCountInCurrencyDropdown() + " currencies are present");
+        } else {
+            //else check for US MP currencies
+            Assert.assertTrue(currencySettingPage.getCurrenciesCountInCurrencyDropdown() == 66 ,
+                    "66 currencies should be in present in Curreny Dropdown but " + currencySettingPage.getCurrenciesCountInCurrencyDropdown() + " currencies are present");
+        }
+    }
+
+    @Test(description = "C65180, "
+            + "Verify user should be able to click on particular currency from the dropdown",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP, FeatureGroups.RUN_I18N_PARTNER_PIPELINE})
+    public void testCurrencySelectionFromCurrencyPreferenceDropdown() {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        final CurrencySettingsPage currencySettingPage = new CurrencySettingsPage(driver);
+        currencySettingPage.verifyCurrencyDropdownClickable();
+        currencySettingPage.getSelectedRandomCurrencyFromCurrencyPreferenceDropdown(sourceCountryCode);
+    }
+
+    @Test(description = "C65175, "
+            + "Verify 'Cancel' and 'Save changes' button is present under change currency dropdown and validate customer should be able to click the buttons",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP, FeatureGroups.RUN_I18N_PARTNER_PIPELINE})
+    public void testSaveChangesAndCancelButton() {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        final CurrencySettingsPage currencySettingPage = new CurrencySettingsPage(driver);
+        currencySettingPage.verifySaveChangesButtonPresent();
+        currencySettingPage.verifyCancelButtonPresent();
+        currencySettingPage.verifyCurrencyDropdownClickable();
+        currencySettingPage.getSelectedRandomCurrencyFromCurrencyPreferenceDropdown(sourceCountryCode);
+        currencySettingPage.clickSaveChangesButton();
+        final HomePage homePage = new HomePage(driver);
+        homePage.verifyCurrentPage();
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        currencySettingPage.clickCancelButton();
+        homePage.verifyCurrentPage();
+    }
+
+    //TODO: Footer options is no longer in scope for new COP MPs
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    @Test(description = "C65149, "
+            + "Verify AIS user should be able to change currency from the Bottom NAV COP picker",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.COP})
+    public void testChangeCurrencyLinkInNavFooter() {
+        final HomePage aisGatewayPage = new HomePage(driver);
+        aisGatewayPage.clickChangeCurrencyLinkInNavFooter();
+        final CurrencySettingsPage currencySettingPage = new CurrencySettingsPage(driver);
+        Assert.assertTrue(currencySettingPage.getCurrencySettingsHeading().equalsIgnoreCase("Currency Settings"),
+                "Change currency link in Nav Footer didn't redirect to Change Currency Settings page.");
+    }
+
+    @Test(description = "C65166, "
+            + "Validate that changed currency should show up inside the COP widget in bottom widget and under the change currency in global nav option",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.COP})
+    public void testSelectedCurrencyInCOPWidgetAndBottomNav() {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final HomePage homePage = new HomePage(driver);
+        homePage.verifyCurrencyDisplayedInTopCurrencyWidgetPresent(selectedCurrency);
+        Assert.assertTrue(homePage.getBottomCurrencyWidgetText().contains(selectedCurrency)
+                , String.format("Selected currency %s is not shown in the bottom widget", selectedCurrency));
+    }
+
+    @Test(description = "C65154, "
+            + "Verify customer changed currency is reflecting on search results price",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP, FeatureGroups.RUN_I18N_PARTNER_PIPELINE})
+    public void testSelectedCurrencyInSearchPage() {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final HomePage homePage = new HomePage(driver);
+        homePage.search(SEARCH_KEYWORD);
+        final SearchResultsPage searchResultPage = new SearchResultsPage(driver);
+        for (int i = 0; i < searchResultPage.getPriceSymbolListFromSearchPageResults().size(); i++) {
+            Assert.assertTrue(selectedCurrency.contains(searchResultPage.getPriceSymbolListFromSearchPageResults().get(i)),
+                    "Customer changed currency is not reflecting at " + i + "th position in search page results." + "Displayed price Value = " + searchResultPage.getPriceSymbolListFromSearchPageResults().get(i));
+        }
+    }
+
+    @Test(description = "C65155, "
+            + "Validate customer changed currency is reflecting on Detail page - main price, shipping+IFD price, p13N widgets",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP, FeatureGroups.RUN_I18N_PARTNER_PIPELINE},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testSelectedCurrencyInDetailPage(final TestDTO testDTO) {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        workflowToDetailPage(testDTO, driver);
+        //Adding this check to ensure we are in AIS mode as sometimes there is a delay to enter AIS mode in pre-prod, resulting in false failures
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+        Assert.assertTrue(detailPage.getCurrencyInPriceBlock(currencyDecimalSeparator).contains(selectedCurrency),
+                "Customer changed currency is not reflecting on detail page main price");
+        final String totalLandedCostMessage = detailPage.getCountryEligibleText().trim();
+        //TODO: Enable for other AIS MPs once TLC is launched
+        if (sourceCountryCode.equals("US")) {
+            Assert.assertTrue(totalLandedCostMessage.contains(selectedCurrency),
+                    "Customer changed currency is not reflecting on detail page shipping+Import Fee Deposit price");
+        }
+    }
+
+    @Test(description = "C65156, "
+            + "validate customer changed currency is reflecting on HUC cart subtotal price",
+            // TODO: https://sim.amazon.com/issues/P22553123
+            //Disabling this Test case since after EveryWhere Cart is dialed up. There is no more HUC Page
+            enabled = false,
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.COP},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testSelectedCurrencyInHUCPage(final TestDTO testDTO) {
+        SignInAndOutHelper.signIn(driver, testDTO, url);
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        workflowToDetailPage(testDTO, driver);
+        detailPage.addToCart();
+        final HucPage hucPage = new HucPage(driver);
+        Assert.assertEquals(selectedCurrency,hucPage.getP13NPriceBlockCurrency(),
+                "customer changed currency is not reflecting on HUC cart subtotal price");
+        CartHelper.clearItemsInCart(driver);
+    }
+
+    @Test(description = "C65162, "
+            + "Validate customer changed currency is reflecting on java cart page product price and Saved for later product price",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP, FeatureGroups.RUN_I18N_PARTNER_PIPELINE, FeatureGroups.RUN_CART_PARTNER_PIPELINE},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testSelectedCurrencyInCartPage(final TestDTO testDTO) {
+        SignInAndOutHelper.signIn(driver, testDTO, url);
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        workflowToAddItemsToCartFromDetailPage(testDTO, detailPage, driver);
+        final CartPage cartPage = new CartPage(driver);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertEquals(selectedCurrency,cartPage.getCurrencyInActiveCart(testDTO.getTestASIN().getAsin()),
+                "Customer changed currency is not reflecting on active cart page product price");
+        softAssert.assertEquals(selectedCurrency,cartPage.getCurrencyInSubtotalBuybox(),
+                "Customer changed currency is not reflecting on subtotal FLC widget in cart page product price");
+        softAssert.assertEquals(selectedCurrency,cartPage.getCurrencyInSubtotalBelowCart(),
+                "Customer changed currency is not reflecting on subtotal below active cart in cart page");
+        for (int i = 0; i < cartPage.getCurrencyOfP13NWidgetsAsinsCount(); i++) {
+            softAssert.assertTrue(cartPage.getCurrencyOfP13NWigetsAsins().contains(selectedCurrency),
+                    String.format("Expected currency: [%s] was not shown correctly on P13N widgets in cart page. Instead observed Currency: [%s]", selectedCurrency, cartPage.getCurrencyOfP13NWigetsAsins()));
+        }
+        cartPage.clickSaveForLater();
+        softAssert.assertEquals(selectedCurrency,cartPage.getCurrencyInSaveForLater(),
+                "Customer changed currency is not reflecting on saved to cart later page product price");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C232348, "
+            + "Verify International customers should see Subtotal on FLC widget in their currency of preference",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testSelectedCurrencyInCartPageFLCWidget(final TestDTO testDTO) {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        workflowToAddItemsToCartFromDetailPage(testDTO, detailPage, driver);
+        final CartPage cartPage = new CartPage(driver);
+        Assert.assertEquals(selectedCurrency,cartPage.getCurrencyInSubtotalBuybox(),
+                "Customer changed currency is not reflecting on subtotal FLC widget in cart page product price");
+    }
+
+    @Test(description = "C232349, "
+            + "Verify International customers should see Subtotal below the cart items in their currency of preference",
+            groups = {PriorityGroups.P1, FeatureGroups.AIS, FeatureGroups.COP},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testSelectedCurrencyInCartPageBelowActiveCart(final TestDTO testDTO) {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        workflowToAddItemsToCartFromDetailPage(testDTO, detailPage, driver);
+        final CartPage cartPage = new CartPage(driver);
+        Assert.assertEquals(selectedCurrency,cartPage.getCurrencyInSubtotalBelowCart(),
+                "Customer changed currency is not reflecting on subtotal FLC widget in cart page product price");
+    }
+
+    @Test(description = "C232387, "
+            + "Verify International customers should see Product price on OLP/AOD link below in their currency of preference",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP})
+    public void testSelectedCurrencyInAODLink() {
+        //Overriding Product Group Type since this class use SDC config for ASIN which is mapped only for gl_pc
+        productGroupType = "gl_toy";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getAisHardCodeASIN("aisHasAODAndMBC")), null /* no account */);
+        testDTO = generateTestDTO(testDTORequest);
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        workflowToDetailPage(testDTO, driver);
+        Assert.assertEquals(selectedCurrency,detailPage.getDetailPageAboveTheFold().getCurrencyTextFromAODLinkAODLink(),
+                "Customer changed currency is not reflecting in OLP/AOD link under DP product description");
+    }
+
+    @Test(description = "C232346, "
+            + "Verify COP reflected properly in the AOD overlay",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP, FeatureGroups.AOD})
+    public void testCOPReflectInAOD() throws Exception {
+        //Overriding Product Group Type since this class use SDC config for ASIN which is mapped only for gl_pc
+        productGroupType = "gl_toy";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getAisHardCodeASIN("aisHasAODAndMBC")), null /* no account */);
+        testDTO = generateTestDTO(testDTORequest);
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        workflowToDetailPage(testDTO, driver);
+        driver.navigate().refresh();
+        detailPage.clickAODLink();
+        final AODPage aodPage = new AODPage(driver);
+        Assert.assertTrue(selectedCurrency.equals(aodPage.getAODOffersPriceCurrencySymbol()), "Changed COP is not reflect in the AOD");
+    }
+
+    @Test(description = "C232388, "
+            + "Verify International customers should see Product price on \"Other sellers on Amazon\" in their currency of preference",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP})
+    public void testSelectedCurrencyInMBC() {
+        //Overriding Product Group Type since this class use SDC config for ASIN which is mapped only for gl_pc
+        productGroupType = "gl_toy";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(
+                getAisHardCodeASIN("aisHasAODAndMBC")), null /* no account */);
+        testDTO = generateTestDTO(testDTORequest);
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        workflowToDetailPage(testDTO, driver);
+        SoftAssert softAssert = new SoftAssert();
+        List<DetailPage.MBCOffer> mbcOffers = detailPage.getMBCOffersData();
+        for (DetailPage.MBCOffer mbcOffer : mbcOffers) {
+            softAssert.assertEquals(selectedCurrency,detailPage.getDetailPageAboveTheFold().getSelectedCurrency(mbcOffer.getPrice()),
+                    "Customer changed currency is not reflecting in MBC offers section");
+        }
+        softAssert.assertAll();
+    }
+
+    //TODO: Enable new MPs once TLC launched in new AIS MPs
+    @MethodSelector(exclude = {"JP", "AE", "AU", "SG"})
+    @Test(description = "C243608, "
+            + "Verify International customers should see Total Landed Cost Widget and the details pop up in their currency of preference",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP, FeatureGroups.RUN_I18N_PARTNER_PIPELINE},
+            dataProvider = AISDataProvider.AIS_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testSelectedCurrencyInTLCAndDetailsLinkPopup(final TestDTO testDTO)  {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        workflowToDetailPage(testDTO, driver);
+        SoftAssert softAssert = new SoftAssert();
+        //Adding this check to ensure we are in AIS mode as sometimes there is a delay to enter AIS mode in pre-prod, resulting in false failures
+        AISModeHelper.verifyAISModeAndSelectedLocationIsUpdated(driver, exportableCountry.getCountryDisplayName());
+        final String totalLandedCostMessageInPriceBlock = detailPage.getCountryEligibleText().trim();
+        final String totalLandedCostMessageInBuybox = detailPage.getCountryEligibleTextOnBuybox().trim();
+        softAssert.assertTrue((totalLandedCostMessageInPriceBlock.contains(selectedCurrency)) && (totalLandedCostMessageInBuybox.contains(selectedCurrency)),
+                "Customer changed currency is not reflecting on detail page shipping+Import Fee Deposit price in Price block TLC and Buybox");
+        detailPage.verifyTotalLandedCostDetailsLinkPresentAndClickable();
+        detailPage.clickTotalLandedCostDetails();
+        final String[] priceTags = new String[]{DetailPageLocale.AG_SHIP_MSG_PRICE.getI18NContent(),
+                DetailPageLocale.AG_SHIP_MSG_SHIPPING_FEES.getI18NContent(),
+                ImportFeesStrings.getTlcPopoverIfdString(exportableCountry),
+                DetailPageLocale.AG_TOTAL_LANDED_COST_TOTAL.getI18NContent()};
+        for (String priceTag : priceTags) {
+            final String price = detailPage.getTotalLandedCostDetailsContentPriceByCell(priceTag);
+            softAssert.assertTrue(price.contains(selectedCurrency),
+                    String.format("Customer changed currency is not reflecting on detail page TLC details link Popover price. Observed[%s], Expected[%s]",
+                            price, selectedCurrency));
+        }
+       softAssert.assertAll();
+       }
+
+    @Test(description = "C232376, "
+            + "Verify AIS customers should see ASINs displayed in P13N widgets in their currency of preference",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testP13NcurrencyInCart(final TestDTO testDTO) {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        workflowToAddItemsToCartFromDetailPage(testDTO, detailPage, driver);
+        final CartPage cartPage = new CartPage(driver);
+        for (int i = 0; i < cartPage.getCurrencyOfP13NWidgetsAsinsCount(); i++) {
+            Assert.assertTrue(cartPage.getCurrencyOfP13NWigetsAsins().contains(selectedCurrency),"Customer changed currency is not reflecting on P13n widgets in cart page");
+            }
+       }
+
+    //TODO: Enable after COP reflection in compare with similar items widget is fixed by platform team - https://t.corp.amazon.com/D110402592
+    @Test(description = "C276589, "
+            + "Verify customer changed currency is reflecting in ASIN prices on 'compare with similar items' widget, P13N widgets, sponsored products etc.",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP},enabled = false)
+    public void testSelectedCurrencyInCompareWithSimilarItemsWidgetAndP13NWidgetsInDetailPage() {
+        //Overriding Product Group Type since this class use SDC config for ASIN which is mapped only for gl_pc
+        productGroupType = "gl_pc";
+        testDTORequest = buildTestDTORequest(buildTestAsinRequest(getAisHardCodeASIN("aisHasCompareWithSimilarItemWidget")), null /* no account */);
+        testDTO = generateTestDTO(testDTORequest);
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        final DetailPage detailPage = new DetailPage(driver);
+        workflowToDetailPage(testDTO, driver);
+        SoftAssert softAssert = new SoftAssert();
+        softAssert.assertTrue(detailPage.getDetailPageBelowTheFold().getCompareWithSimilarItemsPriceText().contains(selectedCurrency)
+                , "Customer changed currency is not reflecting on detail page 'Compare with similar items' widget");
+        for (int i=1; i <= detailPage.getDetailPageBelowTheFold().getAllP13NWidgetsPriceSymbolCountInDP(); i++) {
+            //Sometimes the xpath does not have a price value due to change in UI in DP, so it is safe to ignore that index number as there is no price value itself
+            if (detailPage.getDetailPageBelowTheFold().getP13NWidgetsPriceSymbolInDPByIndex(i).isEmpty())
+                continue;
+            softAssert.assertTrue(detailPage.getDetailPageBelowTheFold().getP13NWidgetsPriceSymbolInDPByIndex(i).contains(selectedCurrency),
+                    "Customer changed currency is not reflecting on detail page P13N widget at " + i + " position");
+        }
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C232354, "
+            + "Verify International customers should see Checkout Page (SPC) in their currency of preference",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP, FeatureGroups.RUN_I18N_PARTNER_PIPELINE},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_WITH_ALL_ADDRESSES_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testSelectedCurrencyInCheckoutPage(final TestDTO testDTO)  {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        AISCheckoutHelper.RequestData wfRequest = buildAISCheckoutWorkflowRequest(testDTO, AISCheckoutHelper.StartPage.HOME_PAGE, AISCheckoutHelper.EndPage.CHECKOUT_SPC, exportableCountry.getCountryDisplayName(), false, false);
+        CheckoutPage checkoutPage = AISCheckoutHelper.workflowToReviewYourOrderPage(wfRequest);
+        SoftAssert softAssert = new SoftAssert();
+        List<String> orderSummaryShipOptions = checkoutPage.getAllShipOptionsDescription(0).stream().map(s -> s.split(":")[0].trim()).collect(Collectors.toList());
+        softAssert.assertTrue(orderSummaryShipOptions.stream().allMatch(shipOptionLineItem -> shipOptionLineItem.contains(selectedCurrency))
+                , "Customer changed currency is not reflected in ship options price");
+        List<String> orderSummaryLineItems = checkoutPage.getAllSpcOrderSummaryPriceOfLineItemsWithoutGrandTotal();
+        softAssert.assertTrue(orderSummaryLineItems.stream().anyMatch(messageLineItem -> messageLineItem.contains(selectedCurrency))
+                , "Customer changed currency is not reflected in the price of Order Summary line items");
+        List<String> orderSummaryBoxItemPrice = checkoutPage.getItemPriceTextInSPC();
+        softAssert.assertTrue(orderSummaryBoxItemPrice.stream().anyMatch(itemPrice -> itemPrice.contains(selectedCurrency))
+                , "Customer changed currency is not reflected in item price in order summary box");
+        softAssert.assertAll();
+    }
+
+    @Test(description = "C281738, "
+            + "Verify International customers should see Smart Wagon page product price, P13N widgets in currency of preference",
+            groups = {PriorityGroups.P0, FeatureGroups.AIS, FeatureGroups.COP, FeatureGroups.RUN_I18N_PARTNER_PIPELINE},
+            dataProvider = AISDataProvider.AIS_ACCOUNT_AND_ASIN,
+            dataProviderClass = AISDataProvider.class)
+    public void testSelectedCurrencyInSmartWagonPageAndP13NWidget(final TestDTO testDTO) {
+        CurrencySelectionHelper.navigateToCurrencySettingsPage(driver);
+        String selectedCurrency = CurrencySelectionHelper.selectRandomCurrencyToShopWith(driver);
+        SmartWagonPageTest smartWagonPageTest = new SmartWagonPageTest();
+        smartWagonPageTest.workflowToSmartWagonPage(testDTO, driver, exportableCountry.getCountryDisplayName(), url);
+        SoftAssert softAssert = new SoftAssert();
+        SmartWagonPage smartWagonPage = new SmartWagonPage(driver);
+        softAssert.assertTrue(smartWagonPage.getSubtotalCurrencySymbolText().contains(selectedCurrency),
+                "Customer changed currency is not reflected in the smart wagon's subtotal price");
+        for (int currencySymbolIndex = 1; currencySymbolIndex < (smartWagonPage.getSmartWagonCurrencySymbolCount()+1); currencySymbolIndex++) {
+            softAssert.assertTrue(smartWagonPage.getSmartWagonP13NItemPriceCurrencySymbol(currencySymbolIndex).contains(selectedCurrency),
+                    "Customer changed currency is not reflected in the item price of the P13N widget");
+        }
+    }
+}
